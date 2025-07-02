@@ -1,363 +1,663 @@
 package com.example.clipcraft
 
-import android.content.ContentValues
+import android.Manifest
+import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
-import android.os.Environment
 import android.provider.MediaStore
 import android.speech.RecognizerIntent
-import android.util.Base64
-import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
-import androidx.activity.result.ActivityResult
-import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.activity.result.contract.ActivityResultContracts.PickMultipleVisualMedia
-import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextField
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
+import androidx.hilt.navigation.compose.hiltViewModel
+import com.example.clipcraft.models.AuthState
+import com.example.clipcraft.models.ProcessingState
+import com.example.clipcraft.models.User
+import com.example.clipcraft.models.SubscriptionType
+import com.example.clipcraft.ui.MainViewModel
 import com.example.clipcraft.ui.theme.ClipCraftTheme
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.MultipartBody
-import okhttp3.RequestBody
-import okhttp3.RequestBody.Companion.asRequestBody
-import okhttp3.RequestBody.Companion.toRequestBody
-import retrofit2.Call
-import retrofit2.Callback
-import retrofit2.Response
-import retrofit2.Retrofit
-import retrofit2.converter.gson.GsonConverterFactory
-import retrofit2.http.Multipart
-import retrofit2.http.POST
-import retrofit2.http.Part
+import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.android.gms.auth.api.signin.GoogleSignInAccount
+import com.google.android.gms.auth.api.signin.GoogleSignInClient
+import com.google.android.gms.auth.api.signin.GoogleSignInOptions
+import com.google.android.gms.common.api.ApiException
+import dagger.hilt.android.AndroidEntryPoint
 import java.io.File
-import java.io.FileOutputStream
-import java.io.InputStream
-import java.util.Locale
 
-// Определение интерфейса API для Retrofit
-interface Api {
-    @Multipart // Указывает, что это multipart-запрос
-    @POST("edit") // Указывает, что это POST-запрос на эндпоинт "/edit"
-    fun edit(
-        @Part("command") cmd: RequestBody, // Часть запроса для команды
-        @Part files: List<MultipartBody.Part> // Теперь это список файлов!
-    ): Call<EditResp> // Возвращает объект Call для выполнения запроса
-}
-
-// Data class для ответа от сервера
-data class EditResp(val video_b64: String) // Содержит видео в формате Base64
-
+@AndroidEntryPoint
 class MainActivity : ComponentActivity() {
-
-    // Состояние для хранения пользовательского запроса (текстового или голосового)
-    private var userCommand by mutableStateOf("")
-    // Состояние для отображения/скрытия индикатора загрузки
-    private var isProcessing by mutableStateOf(false)
-
-    // Инициализация контракта для выбора МНОЖЕСТВА медиафайлов
-    // maxItems = 5 ограничивает количество видео, которые пользователь может выбрать.
-    private val pickMultipleMedia = registerForActivityResult(PickMultipleVisualMedia(maxItems = 5)) { uris ->
-        // Проверяем, были ли выбраны медиафайлы
-        if (uris.isNotEmpty()) {
-            Log.d("ClipCraft", "Selected URIs: $uris") // Логируем выбранные URI
-            // Если есть выбранные URI и пользовательский запрос не пуст, отправляем на сервер
-            if (userCommand.isNotBlank()) {
-                sendToServer(uris, userCommand)
-            } else {
-                // Если запрос пуст, показываем Toast и не отправляем
-                Toast.makeText(this, "Пожалуйста, введите или произнесите ваш запрос.", Toast.LENGTH_LONG).show()
-            }
-        } else {
-            // Если выбор отменен или не выбрано ни одного файла
-            Toast.makeText(this, "Выбор медиа отменен или не выбрано ни одного файла", Toast.LENGTH_SHORT).show()
-            Log.d("ClipCraft", "No media selected or selection cancelled")
-        }
-    }
-
-    // Для голосового ввода: контракт для запуска системного распознавания речи
-    private val speechRecognizerLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result: ActivityResult ->
-        // Проверяем результат активности распознавания речи
-        if (result.resultCode == RESULT_OK && result.data != null) {
-            // Извлекаем распознанный текст
-            val spokenText: String? = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.let { results ->
-                results[0] // Берем первый (наиболее вероятный) результат
-            }
-            spokenText?.let {
-                // Обновляем состояние userCommand распознанным текстом
-                userCommand = it
-                Toast.makeText(this, "Распознано: \"$it\"", Toast.LENGTH_SHORT).show()
-            }
-        } else {
-            // Если распознавание не удалось или было отменено
-            Toast.makeText(this, "Не удалось распознать речь или отменено.", Toast.LENGTH_SHORT).show()
-        }
-    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
         setContent {
-            // Оборачиваем содержимое в вашу пользовательскую тему ClipCraftTheme.
-            // Убедитесь, что ClipCraftTheme, Color.kt и Typography.kt
-            // правильно определены в папке ui.theme.
             ClipCraftTheme {
-                // Surface - это контейнер Material Design, который обычно используется как фон экрана.
                 Surface(
-                    modifier = Modifier.fillMaxSize(), // Заставляет Surface занимать всю доступную площадь экрана
-                    color = MaterialTheme.colorScheme.background // Устанавливает фоновый цвет из вашей темы
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background
                 ) {
-                    // Column используется для вертикального расположения элементов UI.
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize() // Занимает всю доступную площадь
-                            .padding(16.dp), // Добавляет отступы со всех сторон
-                        horizontalAlignment = Alignment.CenterHorizontally, // Выравнивает элементы по горизонтали по центру
-                        verticalArrangement = Arrangement.Center // Выравнивает элементы по вертикали по центру
-                    ) {
-                        // Поле для текстового ввода пользовательского запроса
-                        TextField(
-                            value = userCommand, // Текущее значение из состояния
-                            onValueChange = { userCommand = it }, // Обновление состояния при изменении текста
-                            label = { Text("Ваш запрос для монтажа (текст)") }, // Подсказка для пользователя
-                            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), // Занимает всю ширину, отступ снизу
-                            singleLine = true // Ограничивает ввод одной строкой
-                        )
-
-                        // Кнопка для активации голосового ввода
-                        Button(
-                            onClick = { startSpeechToText() }, // При нажатии запускаем голосовой ввод
-                            modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp) // Занимает всю ширину, отступ снизу
-                        ) {
-                            Icon(Icons.Filled.Mic, contentDescription = "Голосовой ввод") // Иконка микрофона
-                            Text(" Голосовой ввод") // Текст на кнопке
-                        }
-
-                        // Кнопка для выбора медиафайлов и отправки на сервер
-                        Button(
-                            onClick = {
-                                // Проверяем, что пользовательский запрос не пуст перед выбором медиа
-                                if (userCommand.isNotBlank()) {
-                                    // Запускаем выбор медиафайлов (изображений и видео)
-                                    pickMultipleMedia.launch(PickVisualMediaRequest(PickVisualMedia.ImageAndVideo))
-                                } else {
-                                    // Если запрос пуст, показываем Toast
-                                    Toast.makeText(this@MainActivity, "Пожалуйста, введите или произнесите ваш запрос.", Toast.LENGTH_LONG).show()
-                                }
-                            },
-                            modifier = Modifier.fillMaxWidth() // Занимает всю ширину
-                        ) {
-                            Text("Выбрать медиа и отправить") // Текст на кнопке
-                        }
-
-                        // Индикатор загрузки (отображается, когда isProcessing = true)
-                        if (isProcessing) {
-                            CircularProgressIndicator(modifier = Modifier.padding(top = 24.dp)) // Круговой индикатор
-                            Text("Обработка видео на сервере...", modifier = Modifier.padding(top = 8.dp)) // Текст состояния
-                        }
-                    }
+                    ClipCraftApp()
                 }
             }
         }
     }
+}
 
-    // Функция для запуска системного распознавания речи
-    private fun startSpeechToText() {
-        val speechRecognizerIntent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            // Используем свободно-форменную модель языка
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            // Устанавливаем русский язык для распознавания речи
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale("ru", "RU").toString())
-            // Подсказка для пользователя
-            putExtra(RecognizerIntent.EXTRA_PROMPT, "Произнесите ваш запрос для монтажа")
+@Composable
+fun ClipCraftApp() {
+    val viewModel: MainViewModel = hiltViewModel()
+    val authState by viewModel.authState.collectAsState()
+
+    when (val state = authState) {
+        is AuthState.Loading -> {
+            LoadingScreen()
         }
+
+        is AuthState.Unauthenticated -> {
+            AuthScreen(
+                onGoogleSignIn = { idToken ->
+                    viewModel.signInWithGoogle(idToken)
+                },
+                onEmailSignIn = { email, password ->
+                    viewModel.signInWithEmail(email, password)
+                },
+                onCreateAccount = { email, password ->
+                    viewModel.createAccount(email, password)
+                }
+            )
+        }
+
+        is AuthState.Authenticated -> {
+            MainScreen(viewModel = viewModel)
+        }
+
+        is AuthState.Error -> {
+            ErrorScreen(
+                message = state.message,
+                onRetry = { viewModel.signOut() }
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AuthScreen(
+    onGoogleSignIn: (String) -> Unit,
+    onEmailSignIn: (String, String) -> Unit,
+    onCreateAccount: (String, String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var isSignUp by remember { mutableStateOf(false) }
+    var email by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var confirmPassword by remember { mutableStateOf("") }
+
+    val context = LocalContext.current
+
+    // Google Sign-In launcher
+    val googleSignInLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
         try {
-            // Запускаем активность распознавания речи
-            speechRecognizerLauncher.launch(speechRecognizerIntent)
-        } catch (e: Exception) {
-            // Обработка ошибок, если устройство не поддерживает голосовой ввод
-            Toast.makeText(this, "Ваше устройство не поддерживает голосовой ввод.", Toast.LENGTH_LONG).show()
-            Log.e("ClipCraft", "Speech recognition error: ${e.message}")
+            val account = task.getResult(ApiException::class.java)
+            account.idToken?.let(onGoogleSignIn)
+        } catch (e: ApiException) {
+            Toast.makeText(context, "Ошибка входа через Google", Toast.LENGTH_SHORT).show()
         }
     }
 
-    // Функция для отправки выбранных медиафайлов и команды на сервер
-    private fun sendToServer(uris: List<Uri>, command: String) {
-        // Проверки на пустые данные
-        if (uris.isEmpty()) {
-            Toast.makeText(this, "Не выбрано ни одного медиафайла", Toast.LENGTH_LONG).show()
-            return
-        }
-        if (command.isBlank()) {
-            Toast.makeText(this, "Запрос для монтажа не может быть пустым.", Toast.LENGTH_LONG).show()
-            return
-        }
-
-        isProcessing = true // Начинаем показ индикатора загрузки
-
-        val multipartFiles = mutableListOf<MultipartBody.Part>()
-        val tempFiles = mutableListOf<File>() // Список для хранения временных файлов для последующего удаления
-
-        // Итерируем по каждому выбранному Uri, создаем временный файл и MultipartBody.Part
-        for (uri in uris) {
-            val file = uriToTempFile(uri)
-            if (file == null) {
-                Toast.makeText(this, "Не удалось создать временный файл для одного из видео", Toast.LENGTH_LONG).show()
-                tempFiles.forEach { it.delete() } // Удаляем уже созданные временные файлы
-                isProcessing = false // Скрываем индикатор
-                return
-            }
-            tempFiles.add(file) // Добавляем временный файл в список
-
-            val requestFile = file.asRequestBody("video/mp4".toMediaType()) // Создаем RequestBody из файла
-            // Создаем MultipartBody.Part с именем поля "files" и именем файла
-            multipartFiles.add(MultipartBody.Part.createFormData("files", file.name, requestFile))
-        }
-
-        // Создаем RequestBody для команды (пользовательского запроса)
-        val cmd = command.toRequestBody("text/plain".toMediaType())
-
-        // Инициализируем Retrofit клиент
-        val retrofit = Retrofit.Builder()
-            .baseUrl("http://192.168.0.8:8000/") // Базовый URL вашего сервера (убедитесь, что он правильный)
-            .addConverterFactory(GsonConverterFactory.create()) // Добавляем конвертер JSON (Gson)
+    fun startGoogleSignIn() {
+        val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+            .requestIdToken("446991119797-076rbbvmnskdu5mfmg36va0gm32e2kov.apps.googleusercontent.com") // Замените на ваш реальный Web Client ID
+            .requestEmail()
             .build()
 
-        // Создаем экземпляр API интерфейса
-        val api = retrofit.create(Api::class.java)
+        val googleSignInClient = GoogleSignIn.getClient(context, gso)
+        googleSignInLauncher.launch(googleSignInClient.signInIntent)
+    }
 
-        // Выполняем асинхронный запрос к серверу
-        api.edit(cmd, multipartFiles).enqueue(object : Callback<EditResp> {
-            // Обработка успешного ответа от сервера
-            override fun onResponse(c: Call<EditResp>, r: Response<EditResp>) {
-                isProcessing = false // Скрываем индикатор после получения ответа
-                if (r.isSuccessful) { // Проверяем успешность HTTP-ответа (коды 2xx)
-                    val responseBody = r.body()
-                    if (responseBody != null) { // Проверяем, что тело ответа не null
-                        try {
-                            // Декодируем видео из Base64 строки
-                            val bytes = Base64.decode(responseBody.video_b64, Base64.DEFAULT)
-                            // Сохраняем видео в галерею устройства
-                            val savedUri = saveToGallery(bytes)
-                            if (savedUri != null) {
-                                Toast.makeText(this@MainActivity, "Сохранено: $savedUri", Toast.LENGTH_LONG).show()
-                                Log.d("ClipCraft", "Video saved to: $savedUri")
-                            } else {
-                                Toast.makeText(this@MainActivity, "Не удалось сохранить видео", Toast.LENGTH_LONG).show()
-                                Log.e("ClipCraft", "Failed to save video to gallery.")
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+
+        Text(
+            text = "ClipCraft",
+            style = MaterialTheme.typography.headlineLarge,
+            color = MaterialTheme.colorScheme.primary
+        )
+
+        Text(
+            text = "Создавайте потрясающие reels с ИИ",
+            style = MaterialTheme.typography.bodyLarge,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(vertical = 16.dp)
+        )
+
+        Spacer(modifier = Modifier.height(32.dp))
+
+        OutlinedButton(
+            onClick = { startGoogleSignIn() },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(Icons.Default.AccountCircle, contentDescription = null)
+                Text("Войти через Google")
+            }
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            HorizontalDivider(modifier = Modifier.weight(1f))
+            Text(
+                text = "или",
+                modifier = Modifier.padding(horizontal = 16.dp),
+                style = MaterialTheme.typography.bodyMedium
+            )
+            HorizontalDivider(modifier = Modifier.weight(1f))
+        }
+
+        Card(
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+
+                OutlinedTextField(
+                    value = email,
+                    onValueChange = { email = it },
+                    label = { Text("Email") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { password = it },
+                    label = { Text("Пароль") },
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                if (isSignUp) {
+                    OutlinedTextField(
+                        value = confirmPassword,
+                        onValueChange = { confirmPassword = it },
+                        label = { Text("Подтвердите пароль") },
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                Button(
+                    onClick = {
+                        if (isSignUp) {
+                            if (password == confirmPassword) {
+                                onCreateAccount(email, password)
                             }
-                        } catch (e: IllegalArgumentException) {
-                            Toast.makeText(this@MainActivity, "Ошибка декодирования Base64: ${e.message}", Toast.LENGTH_LONG).show()
-                            Log.e("ClipCraft", "Base64 decoding error: ${e.message}")
+                        } else {
+                            onEmailSignIn(email, password)
                         }
-                    } else {
-                        Toast.makeText(this@MainActivity, "Ошибка: Пустой ответ от сервера", Toast.LENGTH_LONG).show()
-                        Log.e("ClipCraft", "Server returned empty body.")
+                    },
+                    enabled = email.isNotBlank() && password.isNotBlank() &&
+                            (!isSignUp || password == confirmPassword),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(if (isSignUp) "Создать аккаунт" else "Войти")
+                }
+
+                TextButton(
+                    onClick = {
+                        isSignUp = !isSignUp
+                        confirmPassword = ""
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        if (isSignUp) "Уже есть аккаунт? Войти"
+                        else "Нет аккаунта? Регистрация"
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun MainScreen(
+    viewModel: MainViewModel,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val processingState by viewModel.processingState.collectAsState()
+    val currentUser by viewModel.currentUser.collectAsState()
+    val selectedVideos by viewModel.selectedVideos.collectAsState()
+    val userCommand by viewModel.userCommand.collectAsState()
+    val useLocalProcessing by viewModel.useLocalProcessing.collectAsState()
+
+    val voiceLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val voiceResults = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+        val voiceCommand = voiceResults?.firstOrNull()
+        if (voiceCommand != null) {
+            viewModel.handleVoiceResult(voiceCommand)
+        }
+    }
+
+    val mediaLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetMultipleContents()
+    ) { uris: List<Uri> ->
+        val paths = uris.mapNotNull { uri ->
+            viewModel.uriToTempFile(context, uri)?.absolutePath
+        }
+        viewModel.addVideos(paths)
+    }
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+
+        TopBar(
+            user = currentUser,
+            onSignOut = viewModel::signOut,
+            useLocalProcessing = useLocalProcessing,
+            onToggleMode = viewModel::toggleProcessingMode
+        )
+
+        CommandInputSection(
+            command = userCommand,
+            onCommandChange = viewModel::updateCommand,
+            onVoiceClick = { viewModel.startVoiceRecognition(voiceLauncher) },
+            enabled = processingState is ProcessingState.Idle
+        )
+
+        MediaSelectionSection(
+            selectedVideos = selectedVideos,
+            onAddMedia = { mediaLauncher.launch("video/*") },
+            onRemoveVideo = viewModel::removeVideo,
+            enabled = processingState is ProcessingState.Idle
+        )
+
+        Button(
+            onClick = { viewModel.processVideos(context) },
+            enabled = selectedVideos.isNotEmpty() &&
+                    userCommand.isNotBlank() &&
+                    processingState is ProcessingState.Idle,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Icon(Icons.Default.PlayArrow, contentDescription = null)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Создать Reels")
+        }
+
+        ProcessingStatusSection(
+            state = processingState,
+            onReset = viewModel::resetProcessing
+        )
+
+        // Исправление smart cast проблемы
+        val currentState = processingState
+        if (currentState is ProcessingState.Success) {
+            ResultSection(
+                videoPath = currentState.result,
+                onSaveToGallery = { viewModel.saveToGallery(context) },
+                onShareToInstagram = { viewModel.shareToInstagram(context) },
+                onShareToTikTok = { viewModel.shareToTikTok(context) },
+                onShareGeneric = { viewModel.shareGeneric(context) }
+            )
+        }
+    }
+}
+
+@Composable
+fun TopBar(
+    user: User?,
+    onSignOut: () -> Unit,
+    useLocalProcessing: Boolean,
+    onToggleMode: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text(
+                    text = "ClipCraft",
+                    style = MaterialTheme.typography.headlineSmall
+                )
+                user?.let { userInfo ->
+                    Text(
+                        text = userInfo.email,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Switch(
+                        checked = useLocalProcessing,
+                        onCheckedChange = { onToggleMode() }
+                    )
+                    Text(
+                        text = if (useLocalProcessing) "Локально" else "Сервер",
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                }
+
+                IconButton(onClick = onSignOut) {
+                    Icon(Icons.Default.ExitToApp, contentDescription = "Выйти")
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CommandInputSection(
+    command: String,
+    onCommandChange: (String) -> Unit,
+    onVoiceClick: () -> Unit,
+    enabled: Boolean
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = "Что хотите создать?",
+                style = MaterialTheme.typography.titleMedium
+            )
+
+            OutlinedTextField(
+                value = command,
+                onValueChange = onCommandChange,
+                placeholder = { Text("Например: динамичный клип с мотоциклом") },
+                enabled = enabled,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Button(
+                onClick = onVoiceClick,
+                enabled = enabled,
+                modifier = Modifier.align(Alignment.End)
+            ) {
+                Icon(Icons.Default.Settings, contentDescription = null)
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Голосом")
+            }
+        }
+    }
+}
+
+@Composable
+fun MediaSelectionSection(
+    selectedVideos: List<String>,
+    onAddMedia: () -> Unit,
+    onRemoveVideo: (String) -> Unit,
+    enabled: Boolean
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Видео (${selectedVideos.size})",
+                    style = MaterialTheme.typography.titleMedium
+                )
+
+                Button(
+                    onClick = onAddMedia,
+                    enabled = enabled
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = null)
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Добавить")
+                }
+            }
+
+            if (selectedVideos.isNotEmpty()) {
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier.heightIn(max = 200.dp)
+                ) {
+                    items(selectedVideos) { videoPath ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = videoPath.substringAfterLast("/"),
+                                modifier = Modifier.weight(1f),
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+
+                            IconButton(
+                                onClick = { onRemoveVideo(videoPath) },
+                                enabled = enabled
+                            ) {
+                                Icon(Icons.Default.Delete, contentDescription = "Удалить")
+                            }
+                        }
                     }
-                } else {
-                    // Обработка неуспешного ответа (например, 404, 500 и т.д.)
-                    val errorBody = r.errorBody()?.string() // Получаем тело ошибки, если есть
-                    Toast.makeText(this@MainActivity, "Ошибка сервера: ${r.code()} - $errorBody", Toast.LENGTH_LONG).show()
-                    Log.e("ClipCraft", "Server error: ${r.code()} - $errorBody")
-                }
-                tempFiles.forEach { it.delete() } // Удаляем все временные файлы после завершения запроса
-            }
-
-            // Обработка ошибки сети или других сбоев (например, нет интернета, таймаут)
-            override fun onFailure(c: Call<EditResp>, t: Throwable) {
-                isProcessing = false // Скрываем индикатор при ошибке
-                Toast.makeText(this@MainActivity, "Ошибка сети: ${t.message}", Toast.LENGTH_LONG).show()
-                Log.e("ClipCraft", "Network error: ${t.message}", t) // Логируем ошибку сети
-                tempFiles.forEach { it.delete() } // Удаляем все временные файлы в случае ошибки
-            }
-        })
-    }
-
-    // Вспомогательная функция для преобразования Uri в временный файл
-    private fun uriToTempFile(uri: Uri): File? {
-        return try {
-            val inputStream: InputStream? = contentResolver.openInputStream(uri) // Открываем поток для чтения из Uri
-            // Создаем временный файл в кэше приложения
-            val tempFile = File(cacheDir, "temp_media_${System.currentTimeMillis()}.mp4")
-            inputStream?.use { input -> // Используем use для автоматического закрытия потока
-                FileOutputStream(tempFile).use { output -> // Используем use для автоматического закрытия потока
-                    input.copyTo(output) // Копируем данные из входного потока в выходной
                 }
             }
-            tempFile // Возвращаем созданный временный файл
-        } catch (e: Exception) {
-            Log.e("ClipCraft", "Error converting URI to temp file: ${e.message}", e) // Логируем ошибку
-            null // Возвращаем null в случае ошибки
         }
     }
+}
 
-    // Вспомогательная функция для сохранения байтов видео в галерею
-    private fun saveToGallery(bytes: ByteArray): Uri? {
-        val fileName = "ClipCraft_Video_${System.currentTimeMillis()}.mp4" // Генерируем уникальное имя файла
-        val mimeType = "video/mp4" // Указываем MIME-тип видео
+@Composable
+fun ProcessingStatusSection(
+    state: ProcessingState,
+    onReset: () -> Unit
+) {
+    when (state) {
+        is ProcessingState.Idle -> { /* Ничего не показываем */ }
 
-        val contentValues = ContentValues().apply {
-            put(MediaStore.MediaColumns.DISPLAY_NAME, fileName) // Имя файла для отображения
-            put(MediaStore.MediaColumns.MIME_TYPE, mimeType) // MIME-тип файла
-            // Для Android Q (API 29) и выше, используем MediaStore.VOLUME_EXTERNAL_PRIMARY
-            // Для более старых версий, используем Environment.DIRECTORY_MOVIES
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-                // Указываем относительный путь для Android Q+
-                put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_MOVIES + File.separator + "ClipCraft")
-            } else {
-                // Для старых версий создаем директорию вручную и указываем полный путь
-                val directory = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES), "ClipCraft")
-                if (!directory.exists()) {
-                    directory.mkdirs() // Создаем директории, если они не существуют
+        is ProcessingState.Processing -> {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("Обработка видео...")
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                 }
-                put(MediaStore.MediaColumns.DATA, File(directory, fileName).absolutePath) // Полный путь к файлу
             }
         }
 
-        var uri: Uri? = null
-        try {
-            val resolver = contentResolver
-            // Вставляем новую запись в MediaStore и получаем Uri для файла
-            uri = resolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, contentValues)
-            uri?.let {
-                // Открываем OutputStream для записи данных в полученный Uri
-                resolver.openOutputStream(it)?.use { outputStream ->
-                    outputStream.write(bytes) // Записываем байты видео
-                    outputStream.flush() // Принудительно записываем все буферизованные данные
+        is ProcessingState.Error -> {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "Ошибка: ${state.message}",
+                        color = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                    Button(onClick = onReset) {
+                        Text("Попробовать снова")
+                    }
                 }
-                Log.d("ClipCraft", "Video saved to gallery at $uri") // Логируем успешное сохранение
             }
-            return uri // Возвращаем Uri сохраненного файла
-        } catch (e: Exception) {
-            Log.e("ClipCraft", "Error saving video to gallery: ${e.message}", e) // Логируем ошибку
-            // Если произошла ошибка и Uri был создан, пытаемся его удалить, чтобы избежать "мертвых" записей
-            if (uri != null) {
-                contentResolver.delete(uri, null, null)
+        }
+
+        is ProcessingState.Success -> { /* Обрабатывается в основном экране */ }
+    }
+}
+
+@Composable
+fun ResultSection(
+    videoPath: String,
+    onSaveToGallery: () -> Unit,
+    onShareToInstagram: () -> Unit,
+    onShareToTikTok: () -> Unit,
+    onShareGeneric: () -> Unit
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = "Видео готово! 🎉",
+                style = MaterialTheme.typography.titleMedium
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Button(
+                    onClick = onSaveToGallery,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Сохранить")
+                }
+
+                Button(
+                    onClick = onShareGeneric,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(Icons.Default.Share, contentDescription = null)
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Поделиться")
+                }
             }
-            return null // Возвращаем null в случае ошибки
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedButton(
+                    onClick = onShareToInstagram,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("📷 Instagram")
+                }
+
+                OutlinedButton(
+                    onClick = onShareToTikTok,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("🎵 TikTok")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun LoadingScreen() {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            CircularProgressIndicator()
+            Spacer(modifier = Modifier.height(16.dp))
+            Text("Загрузка...")
+        }
+    }
+}
+
+@Composable
+fun ErrorScreen(
+    message: String,
+    onRetry: () -> Unit
+) {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = "Ошибка",
+                style = MaterialTheme.typography.headlineMedium,
+                color = MaterialTheme.colorScheme.error
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodyMedium
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Button(onClick = onRetry) {
+                Text("Попробовать снова")
+            }
         }
     }
 }

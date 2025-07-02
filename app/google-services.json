@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "446991119797",
+    "project_id": "clipcraft-6e4cf",
+    "storage_bucket": "clipcraft-6e4cf.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:446991119797:android:d5938d3d26d263796315fc",
+        "android_client_info": {
+          "package_name": "com.example.clipcraft"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "446991119797-076rbbvmnskdu5mfmg36va0gm32e2kov.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAKbVCxNIVbiQNtjPRgGeTVYC82UQLXCQg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "446991119797-076rbbvmnskdu5mfmg36va0gm32e2kov.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
