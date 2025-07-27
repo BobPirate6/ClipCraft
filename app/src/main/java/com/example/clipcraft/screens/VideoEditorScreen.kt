@@ -360,7 +360,7 @@ fun VideoEditorScreen(
                 } else {
                     viewModel.trimSegmentEnd(segmentId, deltaTime)
                 }
-                viewModel.snapSegmentsTogether()
+                // Не вызываем snapSegmentsTogether при trim, чтобы избежать движения соседних сегментов
             },
             onPositionChange = { position ->
                 viewModel.updatePlayheadPosition(position)

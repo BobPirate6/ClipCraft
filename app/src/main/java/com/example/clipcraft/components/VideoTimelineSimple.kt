@@ -3,6 +3,7 @@ package com.example.clipcraft.components
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -11,10 +12,14 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.ArrowForward
+import androidx.compose.material.icons.filled.FitScreen
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -23,19 +28,25 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.Canvas
 import coil.compose.AsyncImage
 import com.example.clipcraft.models.VideoSegment
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.Job
 import kotlin.math.roundToInt
 import kotlin.math.abs
 import kotlin.math.max
@@ -61,19 +72,111 @@ fun VideoTimelineSimple(
 ) {
     val density = LocalDensity.current
     val lazyListState = rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
+    
+    // Размер таймлайна для вычисления минимального зума
+    var timelineWidth by remember { mutableStateOf(0f) }
     
     // Текущий уровень масштаба
     var currentZoom by remember { mutableStateOf(zoomLevel) }
+    
+    // Состояние для drag & drop
+    var draggingSegmentId by remember { mutableStateOf<String?>(null) }
+    var dragPosition by remember { mutableStateOf(Offset.Zero) }
+    
+    // Для мгновенной перестановки
+    var currentDraggedIndex by remember { mutableStateOf(-1) }
+    var reorderedSegments by remember(segments) { mutableStateOf(segments) }
+    
+    // Эффективный зум для рендеринга
+    val effectiveZoom = currentZoom
+    
     LaunchedEffect(zoomLevel) {
         currentZoom = zoomLevel
     }
     
-    // Состояние для drag & drop
-    var draggingSegmentId by remember { mutableStateOf<String?>(null) }
-    var dropTargetIndex by remember { mutableStateOf(-1) }
-    
     // Общая длительность
     val totalDuration = segments.sumOf { it.duration.toDouble() }.toFloat()
+    
+    // Вычисляем минимальный зум для показа всех сегментов
+    val minZoom = if (totalDuration > 0 && timelineWidth > 0) {
+        val padding = with(density) { 32.dp.toPx() } // Учитываем отступы
+        val availableWidth = timelineWidth - padding
+        val minZoomToFit = availableWidth / (totalDuration * PIXELS_PER_SECOND)
+        minZoomToFit.coerceIn(0.1f, 1.0f) // Ограничиваем минимальный зум
+    } else {
+        0.5f
+    }
+    
+    // Обновляем порядок сегментов при перетаскивании
+    LaunchedEffect(dragPosition, draggingSegmentId, reorderedSegments) {
+        if (draggingSegmentId != null && currentDraggedIndex != -1) {
+            // Вычисляем текущую позицию центра перетаскиваемого сегмента
+            var accumulatedX = 0f
+            val segmentSpacing = with(density) { 2.dp.toPx() }
+            
+            // Находим x-координату перетаскиваемого сегмента
+            for (i in 0 until currentDraggedIndex) {
+                accumulatedX += reorderedSegments[i].duration * PIXELS_PER_SECOND * effectiveZoom + segmentSpacing
+            }
+            
+            val draggedSegment = reorderedSegments[currentDraggedIndex]
+            val draggedWidth = draggedSegment.duration * PIXELS_PER_SECOND * effectiveZoom
+            val draggedCenterX = accumulatedX + draggedWidth / 2 + dragPosition.x
+            
+            // Проверяем, нужно ли поменять местами с соседними сегментами
+            var newIndex = currentDraggedIndex
+            accumulatedX = 0f
+            
+            reorderedSegments.forEachIndexed { idx, segment ->
+                if (idx != currentDraggedIndex) {
+                    val segWidth = segment.duration * PIXELS_PER_SECOND * effectiveZoom
+                    val segCenterX = accumulatedX + segWidth / 2
+                    
+                    // Если центр перетаскиваемого сегмента пересек центр другого сегмента
+                    if (draggedCenterX > segCenterX && idx > currentDraggedIndex) {
+                        newIndex = idx
+                    } else if (draggedCenterX < segCenterX && idx < currentDraggedIndex) {
+                        newIndex = idx
+                        return@forEachIndexed
+                    }
+                }
+                accumulatedX += reorderedSegments[idx].duration * PIXELS_PER_SECOND * effectiveZoom + segmentSpacing
+            }
+            
+            // Если нужно переместить сегмент
+            if (newIndex != currentDraggedIndex) {
+                val mutableList = reorderedSegments.toMutableList()
+                val movedSegment = mutableList.removeAt(currentDraggedIndex)
+                mutableList.add(newIndex, movedSegment)
+                reorderedSegments = mutableList
+                currentDraggedIndex = newIndex
+                
+                android.util.Log.d("VideoTimeline", "Segments reordered: moved from $currentDraggedIndex to $newIndex")
+            }
+            
+            // Автоскролл при приближении к краям
+            val layoutInfo = lazyListState.layoutInfo
+            val viewportWidth = layoutInfo.viewportEndOffset - layoutInfo.viewportStartOffset
+            val edgeThreshold = with(density) { 50.dp.toPx() }
+            val scrollSpeed = 5f
+            
+            val fingerViewportX = draggedCenterX - lazyListState.firstVisibleItemScrollOffset
+            
+            when {
+                fingerViewportX < edgeThreshold -> {
+                    coroutineScope.launch {
+                        lazyListState.scrollBy(-scrollSpeed)
+                    }
+                }
+                fingerViewportX > viewportWidth.toFloat() - edgeThreshold -> {
+                    coroutineScope.launch {
+                        lazyListState.scrollBy(scrollSpeed)
+                    }
+                }
+            }
+        }
+    }
     
     Column(modifier = modifier) {
         // Контролы масштабирования
@@ -86,14 +189,18 @@ fun VideoTimelineSimple(
             // Кнопка уменьшения масштаба
             IconButton(
                 onClick = {
-                    val currentIndex = ZOOM_LEVELS.indexOf(currentZoom)
+                    val currentIndex = ZOOM_LEVELS.indexOfFirst { it >= currentZoom }
                     if (currentIndex > 0) {
-                        val newZoom = ZOOM_LEVELS[currentIndex - 1]
+                        val newZoom = ZOOM_LEVELS[currentIndex - 1].coerceAtLeast(minZoom)
                         currentZoom = newZoom
                         onZoomChange(newZoom)
+                    } else {
+                        // Если уже на минимальном уровне из списка, используем вычисленный минимум
+                        currentZoom = minZoom
+                        onZoomChange(minZoom)
                     }
                 },
-                enabled = currentZoom > ZOOM_LEVELS.first(),
+                enabled = currentZoom > minZoom,
                 modifier = Modifier.size(32.dp)
             ) {
                 Icon(
@@ -105,10 +212,31 @@ fun VideoTimelineSimple(
             
             Spacer(modifier = Modifier.width(8.dp))
             
+            // Кнопка "показать все"
+            IconButton(
+                onClick = {
+                    currentZoom = minZoom
+                    onZoomChange(minZoom)
+                },
+                modifier = Modifier.size(32.dp)
+            ) {
+                Icon(
+                    Icons.Default.FitScreen,
+                    contentDescription = "Показать все сегменты",
+                    modifier = Modifier.size(20.dp),
+                    tint = if (currentZoom == minZoom) 
+                        MaterialTheme.colorScheme.primary 
+                    else 
+                        LocalContentColor.current
+                )
+            }
+            
+            Spacer(modifier = Modifier.width(8.dp))
+            
             // Кнопка увеличения масштаба
             IconButton(
                 onClick = {
-                    val currentIndex = ZOOM_LEVELS.indexOf(currentZoom)
+                    val currentIndex = ZOOM_LEVELS.indexOfLast { it <= currentZoom }
                     if (currentIndex >= 0 && currentIndex < ZOOM_LEVELS.size - 1) {
                         val newZoom = ZOOM_LEVELS[currentIndex + 1]
                         currentZoom = newZoom
@@ -132,6 +260,9 @@ fun VideoTimelineSimple(
                 .height(150.dp)
                 .background(Color.Black.copy(alpha = 0.9f))
                 .clip(RoundedCornerShape(8.dp))
+                .onGloballyPositioned { coordinates ->
+                    timelineWidth = coordinates.size.width.toFloat()
+                }
                 .pointerInput(Unit) {
                     detectTapGestures(
                         onTap = { offset ->
@@ -145,7 +276,7 @@ fun VideoTimelineSimple(
             // Адаптивная линейка времени
             TimeRulerAdaptive(
                 totalDuration = totalDuration,
-                zoomLevel = currentZoom,
+                zoomLevel = effectiveZoom,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(30.dp)
@@ -164,72 +295,44 @@ fun VideoTimelineSimple(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 itemsIndexed(
-                    items = segments,
+                    items = reorderedSegments,
                     key = { _, segment -> segment.id }
                 ) { index, segment ->
-                    // Показываем индикатор слева от сегмента если это целевая позиция
-                    if (dropTargetIndex == index && draggingSegmentId != null) {
-                        // Превью сегмента с яркой обводкой
-                        Box(
-                            modifier = Modifier
-                                .width(with(density) { (PIXELS_PER_SECOND * currentZoom * 1f).toDp() }) // 1 секунда длительность
-                                .height(80.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .border(
-                                    width = 2.dp,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    shape = RoundedCornerShape(8.dp)
-                                )
-                                .background(
-                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
-                                    RoundedCornerShape(8.dp)
-                                )
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                    }
-                    
                     VideoSegmentSimple(
                         segment = segment,
                         index = index,
                         isSelected = segment.id == selectedSegmentId,
                         isDragging = segment.id == draggingSegmentId,
-                        isDropTarget = index == dropTargetIndex && draggingSegmentId != null,
-                        zoomLevel = currentZoom,
-                        segments = segments,
+                        zoomLevel = effectiveZoom,
                         onSegmentClick = { onSegmentClick(segment) },
                         onSegmentDelete = { onSegmentDelete(segment.id) },
                         onSegmentReorder = onSegmentReorder,
                         onSegmentTrim = { deltaTime, isStart ->
                             onSegmentTrim(segment.id, deltaTime, isStart)
                         },
-                        onDragStateChange = { isDragging, targetIndex ->
-                            draggingSegmentId = if (isDragging) segment.id else null
-                            dropTargetIndex = targetIndex
+                        onDragStateChange = { isDragging, offset ->
+                            if (isDragging) {
+                                draggingSegmentId = segment.id
+                                dragPosition = offset
+                                currentDraggedIndex = index
+                                android.util.Log.d("VideoTimeline", "Drag started: segment=${segment.id}, index=$index")
+                            } else {
+                                // Применяем окончательную перестановку
+                                if (currentDraggedIndex != -1) {
+                                    val originalIndex = segments.indexOfFirst { it.id == segment.id }
+                                    if (originalIndex != -1 && originalIndex != currentDraggedIndex) {
+                                        android.util.Log.d("VideoTimeline", "Final reorder: from=$originalIndex to=$currentDraggedIndex")
+                                        onSegmentReorder(originalIndex, currentDraggedIndex)
+                                    }
+                                }
+                                
+                                draggingSegmentId = null
+                                dragPosition = Offset.Zero
+                                currentDraggedIndex = -1
+                                reorderedSegments = segments // Сбрасываем к оригинальному порядку
+                            }
                         }
                     )
-                }
-                
-                // Показываем индикатор в конце если это последняя позиция
-                if (dropTargetIndex == segments.size && draggingSegmentId != null) {
-                    item {
-                        Spacer(modifier = Modifier.width(4.dp))
-                        // Превью сегмента с яркой обводкой
-                        Box(
-                            modifier = Modifier
-                                .width(with(density) { (PIXELS_PER_SECOND * currentZoom * 1f).toDp() }) // 1 секунда длительность
-                                .height(80.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .border(
-                                    width = 2.dp,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    shape = RoundedCornerShape(8.dp)
-                                )
-                                .background(
-                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
-                                    RoundedCornerShape(8.dp)
-                                )
-                        )
-                    }
                 }
             }
         }
@@ -242,14 +345,12 @@ private fun VideoSegmentSimple(
     index: Int,
     isSelected: Boolean,
     isDragging: Boolean,
-    isDropTarget: Boolean,
     zoomLevel: Float,
-    segments: List<VideoSegment>,
     onSegmentClick: () -> Unit,
     onSegmentDelete: () -> Unit,
     onSegmentReorder: (Int, Int) -> Unit,
     onSegmentTrim: (Float, Boolean) -> Unit,
-    onDragStateChange: (Boolean, Int) -> Unit
+    onDragStateChange: (Boolean, Offset) -> Unit
 ) {
     val density = LocalDensity.current
     
@@ -266,7 +367,7 @@ private fun VideoSegmentSimple(
     // Анимация
     val elevation by animateDpAsState(
         targetValue = when {
-            isDragging -> 16.dp
+            isDragging -> 24.dp  // Увеличиваем тень при перетаскивании
             isSelected -> 8.dp
             else -> 2.dp
         },
@@ -275,13 +376,23 @@ private fun VideoSegmentSimple(
     )
     
     val scale by animateFloatAsState(
-        targetValue = if (isDragging) 1.05f else 1f,
+        targetValue = if (isDragging) 1.1f else 1f,  // Увеличиваем масштаб при перетаскивании
         animationSpec = spring(),
         label = "scale"
     )
     
-    // Вычисляем размер с учетом визуального триммирования
+    val alpha by animateFloatAsState(
+        targetValue = if (isDragging) 0.8f else 1f,  // Делаем полупрозрачным при перетаскивании
+        animationSpec = spring(),
+        label = "alpha"
+    )
+    
+    // ВАЖНО: Базовая ширина сегмента НЕ МЕНЯЕТСЯ при триммировании
+    // Это предотвращает сдвиг последующих сегментов
     val baseWidthPx = segment.duration * PIXELS_PER_SECOND * zoomLevel
+    val segmentWidthDp = with(density) { baseWidthPx.toDp() }
+    
+    // Визуальная ширина для отображения обрезанного контента
     val visualWidth = if (isTrimming) {
         when (trimType) {
             TrimType.LEFT -> baseWidthPx - visualTrimOffset
@@ -291,79 +402,103 @@ private fun VideoSegmentSimple(
     } else {
         baseWidthPx
     }
-    val segmentWidthDp = with(density) { visualWidth.coerceAtLeast(20f).toDp() }
-    
-    // Вычисляем смещение для правильного anchor при триммировании
-    val trimOffsetX = if (isTrimming && trimType == TrimType.RIGHT) {
-        // При триммировании правого края, левый край остается на месте (anchor)
-        0f
-    } else if (isTrimming && trimType == TrimType.LEFT) {
-        visualTrimOffset
-    } else {
-        0f
-    }
     
     Box(
         modifier = Modifier
-            .width(segmentWidthDp)
+            .width(segmentWidthDp) // Фиксированная ширина, не меняется при триммировании
             .height(80.dp)
             .offset { 
                 IntOffset(
-                    (if (isDragging) dragOffset.x else 0f).roundToInt() + trimOffsetX.roundToInt(),
+                    if (isDragging) dragOffset.x.roundToInt() else 0,
                     if (isDragging) dragOffset.y.roundToInt() else 0
                 )
             }
-            .shadow(elevation, RoundedCornerShape(8.dp))
-            .clip(RoundedCornerShape(8.dp))
-            .background(MaterialTheme.colorScheme.surface)
-            .border(
-                width = if (isSelected) 2.dp else 1.dp,
-                color = if (isSelected) MaterialTheme.colorScheme.primary 
-                       else Color.White.copy(alpha = 0.3f),
-                shape = RoundedCornerShape(8.dp)
-            )
-            .pointerInput(segment.id, isSelected) {
-                detectTapGestures(
-                    onTap = {
-                        // Выбираем сегмент по тапу всегда (toggle selection)
-                        onSegmentClick()
-                    }
+    ) {
+        // Контейнер для визуального обрезания при триммировании левого края
+        Box(
+            modifier = Modifier
+                .fillMaxHeight()
+                .width(with(density) { visualWidth.coerceAtLeast(20f).toDp() })
+                .align(if (isTrimming && trimType == TrimType.LEFT) Alignment.CenterEnd else Alignment.CenterStart)
+        ) {
+            // Основной контейнер сегмента
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .offset(x = if (isTrimming && trimType == TrimType.LEFT) with(density) { (-visualTrimOffset).toDp() } else 0.dp)
+                    .shadow(elevation, RoundedCornerShape(8.dp))
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(MaterialTheme.colorScheme.surface)
+                    .border(
+                    width = when {
+                        isDragging -> 3.dp  // Толще обводка при перетаскивании
+                        isSelected -> 2.dp
+                        else -> 1.dp
+                    },
+                    color = when {
+                        isDragging -> MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
+                        isSelected -> MaterialTheme.colorScheme.primary
+                        else -> Color.White.copy(alpha = 0.3f)
+                    },
+                    shape = RoundedCornerShape(8.dp)
                 )
-            }
-            .pointerInput(segment.id + "_drag", isSelected) {
-                if (!isSelected) return@pointerInput
-                detectDragGestures(
+                .graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                    this.alpha = alpha
+                }
+                .pointerInput(segment.id, isSelected) {
+                    detectTapGestures(
+                        onTap = {
+                            // Выбираем сегмент по тапу всегда (toggle selection)
+                            onSegmentClick()
+                        }
+                    )
+                }
+                .pointerInput(segment.id + "_drag", isSelected) {
+                    if (!isSelected) return@pointerInput
+                    
+                    detectDragGestures(
                     onDragStart = { offset ->
-                        val edgeThreshold = 32.dp.toPx()
+                        
+                        // Зона для ручек триммирования (уменьшена для удобства)
+                        val trimHandleZone = 32.dp.toPx()
+                        val leftHandleHit = offset.x < trimHandleZone
+                        val rightHandleHit = offset.x > this.size.width - trimHandleZone
+                        
                         when {
-                            // Левый край
-                            offset.x < edgeThreshold -> {
+                            // В зоне триммирования - сразу начинаем триммировать
+                            leftHandleHit -> {
                                 isTrimming = true
                                 trimType = TrimType.LEFT
                                 trimOffset = 0f
                                 visualTrimOffset = 0f
                             }
-                            // Правый край
-                            offset.x > size.width - edgeThreshold -> {
+                            rightHandleHit -> {
                                 isTrimming = true
                                 trimType = TrimType.RIGHT
                                 trimOffset = 0f
                                 visualTrimOffset = 0f
                             }
-                            // Центр - drag
+                            // В центре - сразу начинаем drag без long press
                             else -> {
+                                // Упрощаем логику - убираем long press
                                 isDragging = true
                                 dragOffset = Offset.Zero
-                                onDragStateChange(true, index)
+                                onDragStateChange(true, Offset.Zero)
                             }
                         }
                     },
                     onDrag = { _, dragAmount ->
                         when {
                             isTrimming && trimType == TrimType.LEFT -> {
-                                trimOffset += dragAmount.x
-                                visualTrimOffset += dragAmount.x
-                                // Только визуальная обратная связь, без вызова onSegmentTrim
+                                // Ограничиваем визуальное изменение, чтобы сегмент не выходил за пределы
+                                val newVisualOffset = visualTrimOffset + dragAmount.x
+                                val maxLeftMovement = segment.duration * PIXELS_PER_SECOND * zoomLevel - 20f // Минимум 20px ширина
+                                val maxLeftExpansion = -segment.startTime * PIXELS_PER_SECOND * zoomLevel
+                                
+                                visualTrimOffset = newVisualOffset.coerceIn(maxLeftExpansion, maxLeftMovement)
+                                trimOffset = visualTrimOffset
                             }
                             isTrimming && trimType == TrimType.RIGHT -> {
                                 trimOffset += dragAmount.x
@@ -372,58 +507,25 @@ private fun VideoSegmentSimple(
                             }
                             isDragging -> {
                                 dragOffset += dragAmount
-                                // Обновляем dropTargetIndex во время перетаскивания
-                                val currentCenterX = (segments.indexOf(segment) * (baseWidthPx + 2.dp.toPx())) + baseWidthPx / 2 + dragOffset.x
-                                var newDropIndex = segments.size // По умолчанию в конец
-                                var accumulatedX = 0f
-                                
-                                segments.forEachIndexed { idx, seg ->
-                                    val segWidth = seg.duration * PIXELS_PER_SECOND * zoomLevel
-                                    val segCenterX = accumulatedX + segWidth / 2
-                                    
-                                    if (currentCenterX < segCenterX && idx != index) {
-                                        newDropIndex = idx
-                                        return@forEachIndexed
-                                    }
-                                    accumulatedX += segWidth + 2.dp.toPx()
-                                }
-                                
-                                onDragStateChange(true, newDropIndex)
+                                // Передаем текущую позицию для отслеживания
+                                onDragStateChange(true, dragOffset)
                             }
                         }
                     },
                     onDragEnd = {
                         when {
                             isDragging -> {
-                                // Определяем новую позицию
-                                val totalOffset = dragOffset.x
-                                var newIndex = index
-                                var cumulativeWidth = 0f
-                                
-                                // Проходим по всем сегментам
-                                for (i in segments.indices) {
-                                    val segWidth = segments[i].duration * PIXELS_PER_SECOND * zoomLevel
-                                    if (i < index && totalOffset < -cumulativeWidth) {
-                                        newIndex = i
-                                        break
-                                    } else if (i > index && totalOffset > cumulativeWidth) {
-                                        newIndex = i
-                                        break
-                                    }
-                                    cumulativeWidth += segWidth + 2.dp.toPx()
-                                }
-                                
-                                if (newIndex != index) {
-                                    onSegmentReorder(index, newIndex)
-                                }
+                                // Просто завершаем перетаскивание - перестановка уже произошла в родительском компоненте
+                                android.util.Log.d("VideoTimeline", "Drag end for segment at index=$index")
                                 
                                 isDragging = false
                                 dragOffset = Offset.Zero
-                                onDragStateChange(false, -1)
+                                onDragStateChange(false, Offset.Zero)
                             }
                             isTrimming && trimType == TrimType.LEFT -> {
                                 // Применяем изменения только в конце
                                 val deltaTime = trimOffset / (PIXELS_PER_SECOND * zoomLevel)
+                                // Ограничиваем trim чтобы сегмент не двигался вправо
                                 val maxTrim = segment.duration - 0.5f
                                 val clampedDelta = deltaTime.coerceIn(-segment.startTime, maxTrim)
                                 if (abs(clampedDelta) > 0.01f) {
@@ -451,10 +553,10 @@ private fun VideoSegmentSimple(
                         }
                     }
                 )
-            }
-    ) {
-        // Превью видео
-        segment.thumbnails.firstOrNull()?.let { thumbnail ->
+                }
+        ) {
+            // Превью видео
+            segment.thumbnails.firstOrNull()?.let { thumbnail ->
             AsyncImage(
                 model = thumbnail,
                 contentDescription = null,
@@ -498,34 +600,64 @@ private fun VideoSegmentSimple(
                 )
                 .padding(horizontal = 6.dp, vertical = 2.dp)
         )
+            } // Закрываем основной контейнер сегмента
+        } // Закрываем контейнер для визуального обрезания
         
         // Визуальные индикаторы триммирования для выделенного сегмента
         if (isSelected) {
-            // Левый индикатор
+            // Левая ручка для триммирования
             Box(
                 modifier = Modifier
                     .align(Alignment.CenterStart)
-                    .width(2.dp)
-                    .fillMaxHeight()
+                    .offset(x = (-12).dp) // Выносим ручку за пределы сегмента
+                    .size(width = 24.dp, height = 40.dp)
+                    .clip(RoundedCornerShape(4.dp))
                     .background(
-                        if (isTrimming && trimType == TrimType.LEFT) 
-                            MaterialTheme.colorScheme.primary 
-                        else Color.White.copy(alpha = 0.5f)
+                        if (isTrimming && trimType == TrimType.LEFT)
+                            Color.White
+                        else Color.White.copy(alpha = 0.9f)
                     )
-            )
+                    .border(
+                        width = 1.dp,
+                        color = Color.Black.copy(alpha = 0.2f),
+                        shape = RoundedCornerShape(4.dp)
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Default.ArrowForward,
+                    contentDescription = "Обрезать слева",
+                    modifier = Modifier.size(16.dp),
+                    tint = Color.Black.copy(alpha = 0.7f)
+                )
+            }
             
-            // Правый индикатор
+            // Правая ручка для триммирования
             Box(
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
-                    .width(2.dp)
-                    .fillMaxHeight()
+                    .offset(x = 12.dp) // Выносим ручку за пределы сегмента
+                    .size(width = 24.dp, height = 40.dp)
+                    .clip(RoundedCornerShape(4.dp))
                     .background(
-                        if (isTrimming && trimType == TrimType.RIGHT) 
-                            MaterialTheme.colorScheme.primary 
-                        else Color.White.copy(alpha = 0.5f)
+                        if (isTrimming && trimType == TrimType.RIGHT)
+                            Color.White
+                        else Color.White.copy(alpha = 0.9f)
                     )
-            )
+                    .border(
+                        width = 1.dp,
+                        color = Color.Black.copy(alpha = 0.2f),
+                        shape = RoundedCornerShape(4.dp)
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Default.ArrowBack,
+                    contentDescription = "Обрезать справа",
+                    modifier = Modifier.size(16.dp),
+                    tint = Color.Black.copy(alpha = 0.7f)
+                )
+            }
         }
     }
 }

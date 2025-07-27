@@ -15,7 +15,10 @@
       "Bash(.gradlew.bat assembleDebug --no-daemon)",
       "Bash(cmd /c:*)",
       "Bash(echo $JAVA_HOME)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git checkout:*)"
     ],
     "deny": []
   }

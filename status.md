@@ -969,6 +969,62 @@ fun handleVoiceResult(result: String) {
 
 **Ready for Next Version**: The v11_editor branch has successfully addressed all timeline interaction issues and is ready to be merged. The timeline now provides a smooth, professional editing experience that matches industry standards. Ready for v12 development with a solid foundation for additional features.
 
+### v12 Timeline Fixes [TIMELINE-V12]
+
+**Timeline Improvements Implemented**:
+
+1. **Left Edge Trim Fix** [BUG-FIX]:
+   - **Problem**: When trimming from the left edge, the segment would jump unexpectedly as it was dragged past its end point
+   - **Root Cause**: The trim logic allowed the left edge to be dragged beyond the segment's right edge, causing position calculation errors
+   - **Solution**: Implemented proper constraint to keep the right edge anchored during left trim:
+   ```kotlin
+   // In VideoSegmentItem - Left trim constraint
+   val maxLeftTrim = (segment.endTime - segment.startTime - 0.5f) * pixelsPerSecond
+   val newLeftTrim = (leftTrimOffset + dragAmount).coerceIn(0f, maxLeftTrim)
+   ```
+   - **Result**: Left edge trim now stops at the minimum duration (0.5s), preventing the segment from jumping or inverting
+
+2. **Enhanced Drag to Reorder UX** [FEATURE]:
+   - **Visual Improvements**:
+     - Increased shadow elevation from 8.dp to 24.dp for better depth perception
+     - Increased scale factor from 1.05x to 1.1x for clearer dragging state
+     - Added transparency (0.8 alpha) to see content underneath while dragging
+     - Thicker border (3.dp) with primary color for better visibility
+   
+   - **Drop Indicator Enhancement**:
+     - Replaced box-style drop preview with vertical line indicator
+     - Yellow line (4.dp width) shows exact insertion point between segments
+     - More precise and less visually intrusive than preview boxes
+     - Implementation:
+     ```kotlin
+     // Vertical line drop indicator
+     Box(
+         modifier = Modifier
+             .offset(x = insertionX.dp)
+             .width(4.dp)
+             .height(80.dp)
+             .background(Color.Yellow.copy(alpha = 0.8f))
+     )
+     ```
+
+3. **Removed Automatic Segment Snapping** [BUG-FIX]:
+   - **Problem**: After trim operations, adjacent segments would automatically snap together, causing unexpected movement
+   - **Root Cause**: `snapSegmentsTogether()` was being called after every trim operation
+   - **Solution**: Removed the automatic snap behavior after trim operations
+   - **Benefit**: Segments now stay in their positions after trimming, giving users full control over gap management
+   - **Code Change**:
+   ```kotlin
+   // Removed this line from onDragEnd:
+   // snapSegmentsTogether()  // This was causing unwanted segment movement
+   ```
+
+**Overall Impact**:
+- Timeline editing now feels more predictable and professional
+- Visual feedback is clearer and more intuitive
+- Users have precise control over segment positioning and trimming
+- No unexpected segment movements or position jumps
+- Drag and drop provides better visual cues about the operation
+
 ## Summary
 
 ClipCraft represents a modern Android application that leverages AI for intelligent video editing. The architecture is clean and modular, making it maintainable and testable. The use of Jetpack Compose for UI, Hilt for dependency injection, and WorkManager for background processing demonstrates best practices in Android development. The integration with Firebase services provides a robust backend infrastructure, while the custom AI services enable the core video editing functionality that sets this app apart.
