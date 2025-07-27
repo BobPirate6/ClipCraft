@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- Разрешаем только HTTPS для продакшн серверов -->
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">loud-whisper.fly.dev</domain>
+        <domain includeSubdomains="true">clipcraft-holy-water-8099.fly.dev</domain>
+    </domain-config>
+    
+    <!-- Базовая конфигурация - запрещаем cleartext для всех остальных -->
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system"/>
+        </trust-anchors>
+    </base-config>
+</network-security-config>

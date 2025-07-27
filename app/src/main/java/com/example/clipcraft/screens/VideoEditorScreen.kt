@@ -16,6 +16,7 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.FitScreen
 import androidx.compose.material.icons.filled.ZoomOutMap
+import androidx.compose.material.icons.filled.Help
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -67,13 +68,24 @@ fun VideoEditorScreen(
     var showSaveProgress by remember { mutableStateOf(false) }
     var saveProgress by remember { mutableStateOf(0f) }
     
-    // Tutorial state - показываем только если не был показан ранее
+    // Tutorial state - показываем при каждом открытии редактора
     val sharedPrefs = context.getSharedPreferences("clipcraft_prefs", Context.MODE_PRIVATE)
     val hasShownVideoEditorTutorial = sharedPrefs.getBoolean("video_editor_tutorial_shown", false)
-    var showTutorial by remember { mutableStateOf(!hasShownVideoEditorTutorial) }
+    val isManualMode = editPlan.finalEdit.isEmpty() && selectedVideos.isNotEmpty()
+    var showTutorial by remember { mutableStateOf(true) } // Всегда показываем туториал
+    
+    // Debug logging for tutorial
+    LaunchedEffect(Unit) {
+        Log.d("VideoEditorTutorial", "hasShownVideoEditorTutorial: $hasShownVideoEditorTutorial")
+        Log.d("VideoEditorTutorial", "isManualMode: $isManualMode")
+        Log.d("VideoEditorTutorial", "showTutorial initial value: $showTutorial")
+    }
     
     var showVoiceEditDialog by remember { mutableStateOf(false) }
     var pendingVoiceCommand by remember { mutableStateOf("") }
+    
+    // Состояние для показа индикатора автосохранения
+    var showAutoSaveIndicator by remember { mutableStateOf(false) }
     
     // Инициализация редактора
     LaunchedEffect(editPlan) {
@@ -148,8 +160,38 @@ fun VideoEditorScreen(
                 )
             },
             navigationIcon = {
-                IconButton(onClick = onExit) {
+                IconButton(onClick = {
+                    // Автосохранение при выходе, если есть изменения
+                    if (timelineState.segments.isNotEmpty()) {
+                        showAutoSaveIndicator = true
+                        coroutineScope.launch {
+                            try {
+                                Log.d("VideoEditorScreen", "Auto-saving on exit")
+                                val tempPath = viewModel.exportToTempFile { progress ->
+                                    // Игнорируем прогресс при автосохранении
+                                }
+                                val updatedEditPlan = viewModel.getUpdatedEditPlan()
+                                onSave(tempPath, updatedEditPlan)
+                            } catch (e: Exception) {
+                                Log.e("VideoEditorScreen", "Failed to auto-save", e)
+                                // Все равно выходим
+                                showAutoSaveIndicator = false
+                                onExit()
+                            }
+                        }
+                    } else {
+                        onExit()
+                    }
+                }) {
                     Icon(Icons.Default.ArrowBack, contentDescription = "Назад")
+                }
+            },
+            actions = {
+                // Кнопка для показа туториала
+                IconButton(onClick = { 
+                    showTutorial = true
+                }) {
+                    Icon(Icons.Default.Help, contentDescription = "Помощь")
                 }
             },
             colors = TopAppBarDefaults.topAppBarColors(
@@ -392,7 +434,7 @@ fun VideoEditorScreen(
                 // Первый ряд кнопок
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    horizontalArrangement = Arrangement.Center
                 ) {
                     // Сохранить
                     Button(
@@ -418,27 +460,12 @@ fun VideoEditorScreen(
                                 }
                             }
                         },
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.widthIn(min = 200.dp),
                         enabled = !editorState.isProcessing && !editorState.isSaving
                     ) {
                         Icon(Icons.Default.Save, contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("Сохранить")
-                    }
-                    
-                    // Поделиться
-                    OutlinedButton(
-                        onClick = {
-                            editorState.tempVideoPath?.let { path ->
-                                onShare(path)
-                            }
-                        },
-                        modifier = Modifier.weight(1f),
-                        enabled = editorState.tempVideoPath != null
-                    ) {
-                        Icon(Icons.Default.Share, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Поделиться")
                     }
                 }
                 
@@ -469,7 +496,29 @@ fun VideoEditorScreen(
                     
                     // Выйти
                     OutlinedButton(
-                        onClick = onExit,
+                        onClick = {
+                            // Автосохранение при выходе, если есть изменения
+                            if (timelineState.segments.isNotEmpty()) {
+                                showAutoSaveIndicator = true
+                                coroutineScope.launch {
+                                    try {
+                                        Log.d("VideoEditorScreen", "Auto-saving on exit (button)")
+                                        val tempPath = viewModel.exportToTempFile { progress ->
+                                            // Игнорируем прогресс при автосохранении
+                                        }
+                                        val updatedEditPlan = viewModel.getUpdatedEditPlan()
+                                        onSave(tempPath, updatedEditPlan)
+                                    } catch (e: Exception) {
+                                        Log.e("VideoEditorScreen", "Failed to auto-save", e)
+                                        // Все равно выходим
+                                        showAutoSaveIndicator = false
+                                        onExit()
+                                    }
+                                }
+                            } else {
+                                onExit()
+                            }
+                        },
                         modifier = Modifier.weight(1f)
                     ) {
                         Icon(Icons.Default.ExitToApp, contentDescription = null)
@@ -550,8 +599,33 @@ fun VideoEditorScreen(
         isVisible = showTutorial,
         onDismiss = { 
             showTutorial = false
-            // Сохраняем, что туториал был показан
-            sharedPrefs.edit().putBoolean("video_editor_tutorial_shown", true).apply()
+            // Не сохраняем состояние, чтобы туториал показывался каждый раз
         }
     )
+    
+    // Временный тестовый диалог для проверки
+    if (showTutorial) {
+        Log.d("VideoEditorTutorial", "showTutorial is true, showing tutorial component")
+    }
+    
+    // Индикатор автосохранения
+    if (showAutoSaveIndicator) {
+        AlertDialog(
+            onDismissRequest = { },
+            title = { Text("Сохранение видео...") },
+            text = {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    CircularProgressIndicator()
+                    Text(
+                        "Пожалуйста, подождите",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+            },
+            confirmButton = { }
+        )
+    }
 }

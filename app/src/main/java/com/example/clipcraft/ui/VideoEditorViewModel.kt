@@ -76,16 +76,32 @@ class VideoEditorViewModel @Inject constructor(
                 Log.d(TAG, "Initializing editor with ${editPlan.finalEdit.size} segments")
                 Log.d("videoeditorclipcraft", "VideoEditorViewModel.initializeWithEditPlan called with ${editPlan.finalEdit.size} segments")
                 
-                // Проверяем, есть ли уже сегменты
+                // Проверяем, есть ли уже сегменты и соответствуют ли они текущим видео
+                val isManualMode = editPlan.finalEdit.isEmpty() && selectedVideos.isNotEmpty()
+                
                 if (_timelineState.value.segments.isNotEmpty()) {
-                    Log.d(TAG, "Editor already initialized with ${_timelineState.value.segments.size} segments, skipping re-initialization")
-                    Log.d("videoeditorclipcraft", "Segments already loaded: ${_timelineState.value.segments.size}")
-                    // Обновляем состояние редактора чтобы UI мог видеть сегменты
-                    _editorState.value = _editorState.value.copy(
-                        originalPlan = editPlan,
-                        timelineState = _timelineState.value
-                    )
-                    return@launch
+                    // Для ручного режима проверяем, те же ли это видео
+                    if (isManualMode) {
+                        val currentVideoUris = _timelineState.value.segments.map { it.sourceVideoUri.toString() }.toSet()
+                        val newVideoUris = selectedVideos.map { it.uri.toString() }.toSet()
+                        
+                        if (currentVideoUris != newVideoUris) {
+                            Log.d(TAG, "Different videos selected, clearing old segments")
+                            clearAllState()
+                        } else {
+                            Log.d(TAG, "Same videos selected, keeping existing segments")
+                            return@launch
+                        }
+                    } else if (!isManualMode) {
+                        Log.d(TAG, "Editor already initialized with ${_timelineState.value.segments.size} segments, skipping re-initialization")
+                        Log.d("videoeditorclipcraft", "Segments already loaded: ${_timelineState.value.segments.size}")
+                        // Обновляем состояние редактора чтобы UI мог видеть сегменты
+                        _editorState.value = _editorState.value.copy(
+                            originalPlan = editPlan,
+                            timelineState = _timelineState.value
+                        )
+                        return@launch
+                    }
                 }
                 
                 // Если план пустой, это ручное редактирование
@@ -1101,5 +1117,35 @@ class VideoEditorViewModel @Inject constructor(
         saveState()
         // Очищаем временные файлы
         videoEditingService.clearTempFiles()
+    }
+    
+    /**
+     * Полная очистка состояния редактора
+     */
+    fun clearAllState() {
+        Log.d(TAG, "Clearing all editor state")
+        
+        // Очищаем временные файлы
+        videoEditingService.clearTempFiles()
+        
+        // Очищаем состояния
+        _timelineState.value = TimelineState()
+        _editorState.value = VideoEditorState()
+        _editHistory.clear()
+        _historyIndex = -1
+        
+        // Очищаем оригинальные данные
+        _originalPlan = null
+        _originalVideoAnalyses = null
+        _originalSelectedVideos = emptyList()
+        
+        // Очищаем saved state
+        savedStateHandle.remove<String>(KEY_TIMELINE_SEGMENTS)
+        savedStateHandle.remove<String>(KEY_ORIGINAL_PLAN)
+        savedStateHandle.remove<String>(KEY_ORIGINAL_ANALYSES)
+        savedStateHandle.remove<String>(KEY_EDIT_HISTORY)
+        savedStateHandle.remove<Int>(KEY_HISTORY_INDEX)
+        
+        Log.d(TAG, "All editor state cleared")
     }
 }

@@ -108,13 +108,6 @@ class MainViewModel @Inject constructor(
             position = TutorialPosition.TOP
         ),
         TutorialStep(
-            id = "manual_edit",
-            title = "Ручное редактирование",
-            description = "После выбора видео появится кнопка 'Редактировать вручную'. Нажмите её, чтобы перейти к монтажу без AI обработки.",
-            targetElement = TutorialTarget.MANUAL_EDIT_BUTTON,
-            position = TutorialPosition.TOP
-        ),
-        TutorialStep(
             id = "input_command",
             title = "Опишите свою идею",
             description = "Введите текстом или голосом, какой клип вы хотите создать. AI поймет ваш запрос и смонтирует видео.",

@@ -752,42 +752,8 @@ private fun BottomCommandPanel(
                         // Дополнительные кнопки
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceEvenly
+                            horizontalArrangement = Arrangement.Center
                         ) {
-                            // Редактировать голосом
-                            if (onBoundsChanged != null) {
-                                TutorialTargetBounds(
-                                    target = TutorialTarget.EDIT_BUTTON,
-                                    onBoundsChanged = { bounds -> onBoundsChanged(TutorialTarget.EDIT_BUTTON, bounds) }
-                                ) {
-                                    OutlinedButton(
-                                        onClick = onEditClick,
-                                        modifier = Modifier.weight(1f).padding(horizontal = 4.dp)
-                                    ) {
-                                        Icon(
-                                            Icons.Default.Edit,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text("Голосом", fontSize = 14.sp)
-                                    }
-                                }
-                            } else {
-                                OutlinedButton(
-                                    onClick = onEditClick,
-                                    modifier = Modifier.weight(1f).padding(horizontal = 4.dp)
-                                ) {
-                                    Icon(
-                                        Icons.Default.Edit,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Голосом", fontSize = 14.sp)
-                                }
-                            }
-                            
                             // Новое видео
                             if (onBoundsChanged != null) {
                                 TutorialTargetBounds(
@@ -796,7 +762,7 @@ private fun BottomCommandPanel(
                                 ) {
                                     OutlinedButton(
                                         onClick = onNewVideoClick,
-                                        modifier = Modifier.weight(1f).padding(horizontal = 4.dp)
+                                        modifier = Modifier.padding(horizontal = 4.dp)
                                     ) {
                                         Icon(
                                             Icons.Default.Add,
@@ -810,7 +776,7 @@ private fun BottomCommandPanel(
                             } else {
                                 OutlinedButton(
                                     onClick = onNewVideoClick,
-                                    modifier = Modifier.weight(1f).padding(horizontal = 4.dp)
+                                    modifier = Modifier.padding(horizontal = 4.dp)
                                 ) {
                                     Icon(
                                         Icons.Default.Add,

@@ -54,11 +54,16 @@ fun VideoEditorTutorial(
 ) {
     var currentStep by remember { mutableStateOf(0) }
     
+    // Debug logging
+    LaunchedEffect(isVisible) {
+        android.util.Log.d("VideoEditorTutorial", "Tutorial visibility changed to: $isVisible")
+    }
+    
     val steps = remember {
         listOf(
             EditorTutorialStep(
                 title = "Добро пожаловать в редактор",
-                description = "Здесь вы можете точно настроить ваше видео. Редактор работает как с AI-сгенерированным планом, так и при ручном монтаже.",
+                description = "Здесь вы можете вручную смонтировать ваше видео.",
                 icon = Icons.Default.Movie
             ),
             EditorTutorialStep(
@@ -68,50 +73,44 @@ fun VideoEditorTutorial(
                 highlightArea = HighlightArea.TIMELINE
             ),
             EditorTutorialStep(
-                title = "Управление зумом",
-                description = "Используйте жест пинч (сведение/разведение пальцев) на таймлайне для изменения масштаба. Кнопка с квадратиками сбрасывает зум до 100%",
+                title = "Управление масштабом",
+                description = "Используйте кнопки + и - для изменения масштаба. Кнопка с квадратиками показывает все сегменты на экране",
                 icon = Icons.Default.ZoomIn,
                 highlightArea = HighlightArea.ZOOM_SLIDER
             ),
             EditorTutorialStep(
                 title = "Обрезка видео",
-                description = "После выбора сегмента появятся полупрозрачные ручки по краям. Потяните за них, чтобы обрезать или расширить сегмент до пределов исходного видео",
+                description = "После выбора сегмента появятся белые ручки со стрелками по краям. Двигайте их для обрезки сегмента",
                 icon = Icons.Default.ContentCut,
                 highlightArea = HighlightArea.TRIM_HANDLES
             ),
             EditorTutorialStep(
                 title = "Изменение порядка",
-                description = "Выберите сегмент, затем нажмите и удерживайте центральную иконку (≡) более 0.5 секунды. После этого перетащите сегмент на новое место",
+                description = "Для перемещения сегмента зажмите и перемещайте его.",
                 icon = Icons.Default.DragHandle,
                 highlightArea = HighlightArea.DRAG_HANDLE
             ),
             EditorTutorialStep(
                 title = "Добавление и удаление",
-                description = "Используйте кнопку '+' для добавления нового видео. Для удаления выделите сегмент и нажмите кнопку корзины или красный крестик на сегменте",
+                description = "Используйте кнопку '+' для добавления нового видео. Для удаления выделите сегмент и нажмите кнопку корзины",
                 icon = Icons.Default.Add,
                 highlightArea = HighlightArea.TIMELINE
             ),
             EditorTutorialStep(
                 title = "Отмена действий",
-                description = "Используйте стрелки отмены и повтора для возврата к предыдущим состояниям. Кнопка сброса (↻) возвращает к исходному состоянию",
+                description = "Используйте стрелки отмены и повтора для возврата к предыдущим состояниям. Красная кнопка сброса возвращает к исходному состоянию",
                 icon = Icons.Default.Undo,
                 highlightArea = HighlightArea.TIMELINE
             ),
             EditorTutorialStep(
                 title = "Просмотр",
-                description = "Нажмите кнопку воспроизведения в панели инструментов. Видео проигрывается в реальном времени без пересоздания файла",
+                description = "Нажмите кнопку воспроизведения для предпросмотра.",
                 icon = Icons.Default.PlayArrow,
                 highlightArea = HighlightArea.PLAY_BUTTON
             ),
             EditorTutorialStep(
-                title = "Редактирование голосом",
-                description = "Используйте кнопку 'Голосом' для внесения изменений голосовыми командами. AI поймет, что нужно изменить в монтаже",
-                icon = Icons.Default.Mic,
-                highlightArea = HighlightArea.VOICE_EDIT
-            ),
-            EditorTutorialStep(
                 title = "Сохранение",
-                description = "Когда закончите, нажмите 'Сохранить' для создания финального видео. Также доступны опции 'Поделиться' и 'Создать новое'",
+                description = "Сохраните ваше видео.",
                 icon = Icons.Default.Save,
                 highlightArea = HighlightArea.SAVE_BUTTON
             )
@@ -140,7 +139,8 @@ fun VideoEditorTutorial(
                 Row(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .padding(16.dp)
+                        .padding(horizontal = 16.dp)
+                        .padding(top = 64.dp)
                         .clip(RoundedCornerShape(20.dp))
                         .background(Color.White.copy(alpha = 0.2f))
                         .clickable { onDismiss() }

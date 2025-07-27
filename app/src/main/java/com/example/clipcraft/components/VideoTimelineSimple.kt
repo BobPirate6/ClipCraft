@@ -4,6 +4,7 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.SpringSpec
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -55,6 +57,7 @@ import kotlin.math.min
 private const val PIXELS_PER_SECOND = 100f
 private val ZOOM_LEVELS = listOf(0.5f, 0.75f, 1.0f, 1.5f, 2.0f, 3.0f, 5.0f)
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun VideoTimelineSimple(
     segments: List<VideoSegment>,
@@ -189,16 +192,16 @@ fun VideoTimelineSimple(
             // Кнопка уменьшения масштаба
             IconButton(
                 onClick = {
-                    val currentIndex = ZOOM_LEVELS.indexOfFirst { it >= currentZoom }
-                    if (currentIndex > 0) {
-                        val newZoom = ZOOM_LEVELS[currentIndex - 1].coerceAtLeast(minZoom)
-                        currentZoom = newZoom
-                        onZoomChange(newZoom)
+                    // Находим ближайший меньший зум из списка
+                    val smallerZooms = ZOOM_LEVELS.filter { it < currentZoom }
+                    val newZoom = if (smallerZooms.isNotEmpty()) {
+                        smallerZooms.last().coerceAtLeast(minZoom)
                     } else {
-                        // Если уже на минимальном уровне из списка, используем вычисленный минимум
-                        currentZoom = minZoom
-                        onZoomChange(minZoom)
+                        // Уменьшаем на фиксированный шаг
+                        (currentZoom - 0.5f).coerceAtLeast(minZoom)
                     }
+                    currentZoom = newZoom
+                    onZoomChange(newZoom)
                 },
                 enabled = currentZoom > minZoom,
                 modifier = Modifier.size(32.dp)
@@ -236,12 +239,16 @@ fun VideoTimelineSimple(
             // Кнопка увеличения масштаба
             IconButton(
                 onClick = {
-                    val currentIndex = ZOOM_LEVELS.indexOfLast { it <= currentZoom }
-                    if (currentIndex >= 0 && currentIndex < ZOOM_LEVELS.size - 1) {
-                        val newZoom = ZOOM_LEVELS[currentIndex + 1]
-                        currentZoom = newZoom
-                        onZoomChange(newZoom)
+                    // Находим ближайший больший зум из списка
+                    val largerZooms = ZOOM_LEVELS.filter { it > currentZoom }
+                    val newZoom = if (largerZooms.isNotEmpty()) {
+                        largerZooms.first()
+                    } else {
+                        // Увеличиваем на фиксированный шаг
+                        (currentZoom + 0.5f).coerceAtMost(ZOOM_LEVELS.last())
                     }
+                    currentZoom = newZoom
+                    onZoomChange(newZoom)
                 },
                 enabled = currentZoom < ZOOM_LEVELS.last(),
                 modifier = Modifier.size(32.dp)
@@ -298,41 +305,51 @@ fun VideoTimelineSimple(
                     items = reorderedSegments,
                     key = { _, segment -> segment.id }
                 ) { index, segment ->
-                    VideoSegmentSimple(
-                        segment = segment,
-                        index = index,
-                        isSelected = segment.id == selectedSegmentId,
-                        isDragging = segment.id == draggingSegmentId,
-                        zoomLevel = effectiveZoom,
-                        onSegmentClick = { onSegmentClick(segment) },
-                        onSegmentDelete = { onSegmentDelete(segment.id) },
-                        onSegmentReorder = onSegmentReorder,
-                        onSegmentTrim = { deltaTime, isStart ->
-                            onSegmentTrim(segment.id, deltaTime, isStart)
-                        },
-                        onDragStateChange = { isDragging, offset ->
-                            if (isDragging) {
-                                draggingSegmentId = segment.id
-                                dragPosition = offset
-                                currentDraggedIndex = index
-                                android.util.Log.d("VideoTimeline", "Drag started: segment=${segment.id}, index=$index")
-                            } else {
-                                // Применяем окончательную перестановку
-                                if (currentDraggedIndex != -1) {
-                                    val originalIndex = segments.indexOfFirst { it.id == segment.id }
-                                    if (originalIndex != -1 && originalIndex != currentDraggedIndex) {
-                                        android.util.Log.d("VideoTimeline", "Final reorder: from=$originalIndex to=$currentDraggedIndex")
-                                        onSegmentReorder(originalIndex, currentDraggedIndex)
+                    Box(
+                        modifier = Modifier
+                            .animateItemPlacement(
+                                animationSpec = spring(
+                                    dampingRatio = 0.8f,
+                                    stiffness = 400f
+                                )
+                            )
+                    ) {
+                        VideoSegmentSimple(
+                            segment = segment,
+                            index = index,
+                            isSelected = segment.id == selectedSegmentId,
+                            isDragging = segment.id == draggingSegmentId,
+                            zoomLevel = effectiveZoom,
+                            onSegmentClick = { onSegmentClick(segment) },
+                            onSegmentDelete = { onSegmentDelete(segment.id) },
+                            onSegmentReorder = onSegmentReorder,
+                            onSegmentTrim = { deltaTime, isStart ->
+                                onSegmentTrim(segment.id, deltaTime, isStart)
+                            },
+                            onDragStateChange = { isDragging, offset ->
+                                if (isDragging) {
+                                    draggingSegmentId = segment.id
+                                    dragPosition = offset
+                                    currentDraggedIndex = index
+                                    android.util.Log.d("VideoTimeline", "Drag started: segment=${segment.id}, index=$index")
+                                } else {
+                                    // Применяем окончательную перестановку
+                                    if (currentDraggedIndex != -1) {
+                                        val originalIndex = segments.indexOfFirst { it.id == segment.id }
+                                        if (originalIndex != -1 && originalIndex != currentDraggedIndex) {
+                                            android.util.Log.d("VideoTimeline", "Final reorder: from=$originalIndex to=$currentDraggedIndex")
+                                            onSegmentReorder(originalIndex, currentDraggedIndex)
+                                        }
                                     }
+                                    
+                                    draggingSegmentId = null
+                                    dragPosition = Offset.Zero
+                                    currentDraggedIndex = -1
+                                    reorderedSegments = segments // Сбрасываем к оригинальному порядку
                                 }
-                                
-                                draggingSegmentId = null
-                                dragPosition = Offset.Zero
-                                currentDraggedIndex = -1
-                                reorderedSegments = segments // Сбрасываем к оригинальному порядку
                             }
-                        }
-                    )
+                        )
+                    }
                 }
             }
         }
@@ -381,12 +398,6 @@ private fun VideoSegmentSimple(
         label = "scale"
     )
     
-    val alpha by animateFloatAsState(
-        targetValue = if (isDragging) 0.8f else 1f,  // Делаем полупрозрачным при перетаскивании
-        animationSpec = spring(),
-        label = "alpha"
-    )
-    
     // ВАЖНО: Базовая ширина сегмента НЕ МЕНЯЕТСЯ при триммировании
     // Это предотвращает сдвиг последующих сегментов
     val baseWidthPx = segment.duration * PIXELS_PER_SECOND * zoomLevel
@@ -403,10 +414,23 @@ private fun VideoSegmentSimple(
         baseWidthPx
     }
     
+    // Анимация для плавного появления после перестановки
+    val animatedAlpha by animateFloatAsState(
+        targetValue = if (isDragging) 0.8f else 1f,
+        animationSpec = spring(
+            dampingRatio = 0.8f,
+            stiffness = 300f
+        ),
+        label = "segmentAlpha"
+    )
+    
     Box(
         modifier = Modifier
             .width(segmentWidthDp) // Фиксированная ширина, не меняется при триммировании
             .height(80.dp)
+            .graphicsLayer {
+                alpha = animatedAlpha
+            }
             .offset { 
                 IntOffset(
                     if (isDragging) dragOffset.x.roundToInt() else 0,
@@ -445,7 +469,6 @@ private fun VideoSegmentSimple(
                 .graphicsLayer {
                     scaleX = scale
                     scaleY = scale
-                    this.alpha = alpha
                 }
                 .pointerInput(segment.id, isSelected) {
                     detectTapGestures(
@@ -495,7 +518,8 @@ private fun VideoSegmentSimple(
                                 // Ограничиваем визуальное изменение, чтобы сегмент не выходил за пределы
                                 val newVisualOffset = visualTrimOffset + dragAmount.x
                                 val maxLeftMovement = segment.duration * PIXELS_PER_SECOND * zoomLevel - 20f // Минимум 20px ширина
-                                val maxLeftExpansion = -segment.startTime * PIXELS_PER_SECOND * zoomLevel
+                                // Разрешаем расширение до начала видео (0f)
+                                val maxLeftExpansion = -segment.inPoint * PIXELS_PER_SECOND * zoomLevel
                                 
                                 visualTrimOffset = newVisualOffset.coerceIn(maxLeftExpansion, maxLeftMovement)
                                 trimOffset = visualTrimOffset
@@ -527,7 +551,8 @@ private fun VideoSegmentSimple(
                                 val deltaTime = trimOffset / (PIXELS_PER_SECOND * zoomLevel)
                                 // Ограничиваем trim чтобы сегмент не двигался вправо
                                 val maxTrim = segment.duration - 0.5f
-                                val clampedDelta = deltaTime.coerceIn(-segment.startTime, maxTrim)
+                                // Разрешаем расширение до начала исходного видео
+                                val clampedDelta = deltaTime.coerceIn(-segment.inPoint, maxTrim)
                                 if (abs(clampedDelta) > 0.01f) {
                                     onSegmentTrim(clampedDelta, true)
                                 }
@@ -539,7 +564,8 @@ private fun VideoSegmentSimple(
                             isTrimming && trimType == TrimType.RIGHT -> {
                                 // Применяем изменения только в конце
                                 val deltaTime = trimOffset / (PIXELS_PER_SECOND * zoomLevel)
-                                val maxExpansion = segment.originalDuration - segment.endTime
+                                // Разрешаем расширение до конца исходного видео
+                                val maxExpansion = segment.originalDuration - segment.outPoint
                                 val maxTrim = -(segment.duration - 0.5f)
                                 val clampedDelta = deltaTime.coerceIn(maxTrim, maxExpansion)
                                 if (abs(clampedDelta) > 0.01f) {

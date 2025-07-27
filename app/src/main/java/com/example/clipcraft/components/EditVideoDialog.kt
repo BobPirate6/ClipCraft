@@ -36,6 +36,11 @@ fun EditVideoDialog(
     var showPlan by remember { mutableStateOf(false) }
     val context = LocalContext.current
     
+    // Показываем туториал голосового редактирования при первом открытии
+    val sharedPrefs = context.getSharedPreferences("clipcraft_prefs", android.content.Context.MODE_PRIVATE)
+    val hasShownVoiceTutorial = sharedPrefs.getBoolean("voice_edit_tutorial_shown", false)
+    var showVoiceTutorial by remember { mutableStateOf(!hasShownVoiceTutorial) }
+    
     // Launcher для голосового ввода
     val speechRecognizerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -264,6 +269,15 @@ fun EditVideoDialog(
             }
         }
     }
+    
+    // Туториал голосового редактирования
+    VoiceEditTutorial(
+        isVisible = showVoiceTutorial,
+        onDismiss = { 
+            showVoiceTutorial = false
+            sharedPrefs.edit().putBoolean("voice_edit_tutorial_shown", true).apply()
+        }
+    )
 }
 
 private fun formatSeconds(seconds: Float): String {

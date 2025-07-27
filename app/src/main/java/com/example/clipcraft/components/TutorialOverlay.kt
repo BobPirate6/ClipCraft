@@ -218,7 +218,8 @@ fun TutorialOverlay(
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .statusBarsPadding() // Отступ от статус бара
-                .padding(16.dp)
+                .padding(horizontal = 16.dp)
+                .padding(top = 64.dp) // Опускаем кнопку ниже
         ) {
             Surface(
                 modifier = Modifier

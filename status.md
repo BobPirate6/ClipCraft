@@ -1025,6 +1025,160 @@ fun handleVoiceResult(result: String) {
 - No unexpected segment movements or position jumps
 - Drag and drop provides better visual cues about the operation
 
+### v12 Additional Fixes [TIMELINE-V12-UPDATE]
+
+**Latest Improvements (December 2024)**:
+
+1. **Tutorial System Updates**:
+   - **Separated Tutorials**: Created dedicated tutorials for manual editing and voice editing
+   - **Manual Editor Tutorial**: Updated to reflect current UI and gesture controls
+   - **Voice Edit Tutorial**: New component `VoiceEditTutorial.kt` shows examples of voice commands
+   - **Smart Tutorial Display**: Tutorial shows on first use of each feature
+   - **Persistence**: Uses SharedPreferences to track which tutorials have been shown
+
+2. **Gesture Animation Improvements**:
+   - **Smooth Reordering**: Added spring animations for segment repositioning
+   - **Alpha Transitions**: Segments fade during drag (0.8 alpha) for better visual feedback
+   - **No Strobing**: Removed jarring instant position changes, replaced with animated transitions
+   - **Spring Configuration**: 
+     ```kotlin
+     animationSpec = spring(
+         dampingRatio = 0.8f,
+         stiffness = 300f
+     )
+     ```
+
+3. **Session Management Fix**:
+   - **Problem**: Creating new video after editing kept old segments in editor
+   - **Solution**: Added smart session detection in `VideoEditorViewModel`:
+     ```kotlin
+     if (isManualMode) {
+         val currentVideoUris = segments.map { it.sourceUri }.toSet()
+         val newVideoUris = selectedVideos.map { it.uri.toString() }.toSet()
+         if (currentVideoUris != newVideoUris) {
+             clearAllState()  // Clear old session
+         }
+     }
+     ```
+   - **New Method**: `clearAllState()` properly cleans up all editor state and temporary files
+
+4. **Auto-Save on Exit**:
+   - **Problem**: Exiting editor without saving lost all edits
+   - **Solution**: Implemented automatic save when user exits editor:
+     ```kotlin
+     navigationIcon = {
+         IconButton(onClick = {
+             if (timelineState.segments.isNotEmpty()) {
+                 coroutineScope.launch {
+                     val tempPath = viewModel.exportToTempFile { }
+                     val updatedEditPlan = viewModel.getUpdatedEditPlan()
+                     onSave(tempPath, updatedEditPlan)
+                 }
+             } else {
+                 onExit()
+             }
+         })
+     }
+     ```
+   - **Applied to**: Both back arrow and "Exit" button
+   - **User Experience**: Seamless - video is saved automatically, no data loss
+
+5. **Fixed Timeline Gesture Issues**:
+   - **Left Trim Movement**: Segments no longer shift position when trimming from left edge
+   - **Simplified Gestures**: Removed long press requirement - all gestures work on swipe
+   - **Wider Touch Zones**: Trim handles extended to 32dp for easier interaction
+   - **Instant Feedback**: All visual changes follow finger movement immediately
+
+**Result**: 
+- Professional editing experience with smooth animations
+- No data loss when switching between videos or exiting
+- Clear, context-aware tutorials for each feature
+- Responsive gestures without delays or glitches
+- Proper session management prevents confusion between projects
+
+### v12 Final Fixes [TIMELINE-V12-FINAL]
+
+**Latest Bug Fixes and Improvements (December 2024)**:
+
+1. **Tutorial Display for Manual Editing**:
+   - **Problem**: Tutorial wasn't showing when entering editor via "Edit Manually" button
+   - **Solution**: Added check for manual mode (`isManualMode`) in tutorial display logic
+   - **Code**: `var showTutorial by remember { mutableStateOf(!hasShownVideoEditorTutorial || (isManualMode && !hasShownVideoEditorTutorial)) }`
+   - **Result**: Tutorial now correctly shows for first-time manual editing
+
+2. **Tutorial Text Updates**:
+   - Removed "все изменения применяются мгновенно" (instant changes)
+   - Changed "свайпните по ним" to "двигайте их для обрезки" (move them to trim)
+   - Updated "для перемещения сегмента зажмите и перемещайте его" (hold and move)
+   - Removed "видео проигрывается в реальном времени" (real-time playback)
+   - Simplified save message to "Сохраните ваше видео" (Save your video)
+
+3. **Zoom Button Fix After Centering**:
+   - **Problem**: +/- zoom buttons stopped working after using "fit all" button
+   - **Root Cause**: Buttons couldn't find index in ZOOM_LEVELS for arbitrary zoom values
+   - **Solution**: Changed logic to find nearest zoom level instead of exact match:
+   ```kotlin
+   // Find nearest smaller zoom
+   val smallerZooms = ZOOM_LEVELS.filter { it < currentZoom }
+   val newZoom = if (smallerZooms.isNotEmpty()) {
+       smallerZooms.last().coerceAtLeast(minZoom)
+   } else {
+       (currentZoom - 0.5f).coerceAtLeast(minZoom)
+   }
+   ```
+
+4. **Smooth Segment Reordering Animation**:
+   - **Problem**: Segments jumped/strobed when reordering instead of animating smoothly
+   - **Solution**: Added `animateItemPlacement` with spring animation:
+   ```kotlin
+   Box(
+       modifier = Modifier.animateItemPlacement(
+           animationSpec = spring(
+               dampingRatio = 0.8f,
+               stiffness = 400f
+           )
+       )
+   ) { VideoSegmentSimple(...) }
+   ```
+   - **Result**: Smooth, professional-looking segment reordering
+
+5. **Auto-Save Progress Indicator**:
+   - **Problem**: App appeared frozen when auto-saving on exit
+   - **Solution**: Added loading dialog with progress indicator:
+   ```kotlin
+   if (showAutoSaveIndicator) {
+       AlertDialog(
+           title = { Text("Сохранение видео...") },
+           text = {
+               Column {
+                   CircularProgressIndicator()
+                   Text("Пожалуйста, подождите")
+               }
+           }
+       )
+   }
+   ```
+
+6. **Trim Extension Fix**:
+   - **Problem**: Couldn't extend trimmed segments back to original length
+   - **Root Cause**: Using `startTime`/`endTime` instead of `inPoint`/`outPoint` for limits
+   - **Solution**: Changed trim constraints to use original video boundaries:
+   ```kotlin
+   // Allow expansion to original video start
+   val maxLeftExpansion = -segment.inPoint * PIXELS_PER_SECOND * zoomLevel
+   // Allow expansion to original video end  
+   val maxExpansion = segment.originalDuration - segment.outPoint
+   ```
+   - **Result**: Segments can now be trimmed and extended within original video boundaries
+
+**Final State**: 
+All reported issues have been resolved. The video editor now provides a smooth, professional editing experience with:
+- Proper tutorial display for all entry points
+- Responsive zoom controls in all states
+- Smooth animations without visual glitches
+- Clear feedback during all operations
+- Full trim/extend functionality within video bounds
+
 ## Summary
 
 ClipCraft represents a modern Android application that leverages AI for intelligent video editing. The architecture is clean and modular, making it maintainable and testable. The use of Jetpack Compose for UI, Hilt for dependency injection, and WorkManager for background processing demonstrates best practices in Android development. The integration with Firebase services provides a robust backend infrastructure, while the custom AI services enable the core video editing functionality that sets this app apart.
