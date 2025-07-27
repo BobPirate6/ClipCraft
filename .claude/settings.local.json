@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls:*)",
+      "Bash(gradlew:*)",
+      "Bash(./gradlew:*)",
+      "Bash(cmd.exe:*)",
+      "Bash(.gradlew.bat clean assembleDebug)",
+      "Bash(rm:*)",
+      "Bash(tail:*)",
+      "Bash(where java)",
+      "Bash(set JAVA_HOME=\"C:\\Program Files\\Android\\Android Studio\\jbr\")",
+      "Bash(cp:*)",
+      "Bash(mv:*)",
+      "Bash(.gradlew.bat assembleDebug --no-daemon)",
+      "Bash(cmd /c:*)",
+      "Bash(echo $JAVA_HOME)",
+      "Bash(git add:*)"
+    ],
+    "deny": []
+  }
+}

@@ -9,7 +9,7 @@ buildscript {
     dependencies {
         classpath("com.google.dagger:hilt-android-gradle-plugin:2.48")
         classpath("com.google.gms:google-services:4.4.2")
-        classpath("com.google.firebase:firebase-crashlytics-gradle:2.9.9")  // Добавьте эту строку
+        classpath("com.google.firebase:firebase-crashlytics-gradle:3.0.2")
     }
 }
 
@@ -19,6 +19,5 @@ plugins {
     id("com.google.gms.google-services") version "4.4.2" apply false
     id("com.google.devtools.ksp") version "1.9.24-1.0.20" apply false
     id("com.google.dagger.hilt.android") version "2.48" apply false
-    id("com.google.firebase.crashlytics") version "2.9.9" apply false
-
+    id("com.google.firebase.crashlytics") version "3.0.2" apply false
 }

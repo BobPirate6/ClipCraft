@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Dark blue background -->
+    <item android:drawable="@color/splash_background_color"/>
+    
+    <!-- Center icon using vector drawable -->
+    <item
+        android:drawable="@drawable/ic_launcher_foreground"
+        android:gravity="center"
+        android:width="108dp"
+        android:height="108dp"/>
+</layer-list>

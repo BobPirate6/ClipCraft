@@ -14,6 +14,14 @@
       },
       "oauth_client": [
         {
+          "client_id": "446991119797-fpbk7k30ghptt5hvtp6dj931putgaoec.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.clipcraft",
+            "certificate_hash": "022bd02d8f65a5124c828eaf6e9cd267497e1cf7"
+          }
+        },
+        {
           "client_id": "446991119797-076rbbvmnskdu5mfmg36va0gm32e2kov.apps.googleusercontent.com",
           "client_type": 3
         }

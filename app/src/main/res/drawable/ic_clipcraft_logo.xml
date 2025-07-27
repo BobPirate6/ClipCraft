@@ -1,0 +1,41 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    
+    <!-- Фон круг -->
+    <path
+        android:fillColor="#6200EE"
+        android:pathData="M54,54m-48,0a48,48 0,1 1,96 0a48,48 0,1 1,-96 0"/>
+    
+    <!-- Кинопленка левая часть -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M30,35h8v8h-8zM30,47h8v8h-8zM30,59h8v8h-8z"/>
+    
+    <!-- Кинопленка правая часть -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M70,35h8v8h-8zM70,47h8v8h-8zM70,59h8v8h-8z"/>
+    
+    <!-- Центральный экран -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M42,38h24v28h-24z"/>
+    
+    <!-- Ножницы (символ монтажа) -->
+    <path
+        android:fillColor="#6200EE"
+        android:pathData="M48,48 L52,44 L56,48 L60,44 M48,56 L52,60 L56,56 L60,60"
+        android:strokeColor="#6200EE"
+        android:strokeWidth="2"/>
+    
+    <!-- Буква C -->
+    <path
+        android:fillColor="#6200EE"
+        android:pathData="M50,50 Q46,50 46,54 Q46,58 50,58"
+        android:strokeColor="#6200EE"
+        android:strokeWidth="3"
+        android:fillType="evenOdd"/>
+</vector>
