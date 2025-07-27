@@ -37,11 +37,12 @@ import com.example.clipcraft.components.*
 import com.example.clipcraft.models.*
 import com.example.clipcraft.ui.VideoEditorViewModel
 import com.example.clipcraft.ui.MainViewModel
-import com.example.clipcraft.components.EmbeddedVideoPlayer
+import com.example.clipcraft.components.OptimizedEmbeddedVideoPlayer
 import com.example.clipcraft.components.VideoTimelineSimple
 import com.example.clipcraft.components.VideoEditorTutorial
-import com.example.clipcraft.components.CompositeVideoPlayer
+import com.example.clipcraft.components.OptimizedCompositeVideoPlayer
 import com.example.clipcraft.components.EditVideoDialog
+import com.example.clipcraft.utils.VideoPlayerPool
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -206,9 +207,9 @@ fun VideoEditorScreen(
                 .fillMaxWidth()
                 .background(Color.Black)
         ) {
-            // Используем CompositeVideoPlayer для бесшовного воспроизведения
+            // Используем OptimizedCompositeVideoPlayer для бесшовного воспроизведения
             if (timelineState.segments.isNotEmpty()) {
-                CompositeVideoPlayer(
+                OptimizedCompositeVideoPlayer(
                     segments = timelineState.segments,
                     currentPosition = timelineState.currentPosition,
                     isPlaying = timelineState.isPlaying,
@@ -227,9 +228,10 @@ fun VideoEditorScreen(
                     Log.d("videoeditorclipcraft", "VideoEditorScreen: Displaying video from $videoPath")
                     val videoUri = Uri.parse(videoPath)
                     Log.d("videoeditorclipcraft", "VideoEditorScreen: Parsed URI = $videoUri")
-                    EmbeddedVideoPlayer(
+                    OptimizedEmbeddedVideoPlayer(
                         videoUri = videoUri,
-                        modifier = Modifier.fillMaxSize()
+                        modifier = Modifier.fillMaxSize(),
+                        playerKey = "editor_preview"
                     )
                 } ?: Log.d("videoeditorclipcraft", "VideoEditorScreen: No video to display")
             }
@@ -627,5 +629,12 @@ fun VideoEditorScreen(
             },
             confirmButton = { }
         )
+    }
+    
+    // Освобождаем неиспользуемые плееры при выходе
+    DisposableEffect(Unit) {
+        onDispose {
+            VideoPlayerPool.releaseUnusedPlayers()
+        }
     }
 }

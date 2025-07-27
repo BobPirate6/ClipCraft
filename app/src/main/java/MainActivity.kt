@@ -32,6 +32,7 @@ import com.example.clipcraft.models.ProcessingState
 import com.example.clipcraft.ui.theme.ClipCraftTheme
 import com.example.clipcraft.components.FeedbackDialog
 import com.example.clipcraft.components.NoCreditsDialog
+import com.example.clipcraft.components.MemoryDebugOverlay
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.android.gms.common.api.ApiException
@@ -39,6 +40,8 @@ import dagger.hilt.android.AndroidEntryPoint
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import com.example.clipcraft.security.SecurityConfig
+import com.example.clipcraft.BuildConfig
+import com.example.clipcraft.utils.VideoPlayerPool
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -74,6 +77,13 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+    
+    override fun onDestroy() {
+        super.onDestroy()
+        // Освобождаем все видеоплееры при уничтожении активности
+        VideoPlayerPool.releaseAll()
+        Log.d("MainActivity", "Released all video players")
     }
 }
 
@@ -269,6 +279,9 @@ fun ClipCraftApp() {
             }
         }
     }
+    
+    // Memory debug overlay for debug builds
+    MemoryDebugOverlay()
 }
 
 @Composable

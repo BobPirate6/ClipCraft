@@ -9,7 +9,7 @@ import java.security.MessageDigest
 object SecurityConfig {
     // Проверка целостности приложения
     fun verifyAppSignature(context: Context): Boolean {
-        val expectedSignatures = listOf(
+        val expectedSignatures = listOf<String>(
             // Добавьте сюда SHA-256 хеш вашего релизного сертификата
             // Получить можно командой: keytool -list -v -keystore your-release-key.keystore
         )

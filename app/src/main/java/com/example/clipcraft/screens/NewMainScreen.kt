@@ -36,7 +36,8 @@ import com.example.clipcraft.ui.MainViewModel
 import com.example.clipcraft.ui.components.*
 import com.example.clipcraft.components.ProcessingProgressBar
 import com.example.clipcraft.components.rememberProcessingStep
-import com.example.clipcraft.components.EmbeddedVideoPlayer
+import com.example.clipcraft.components.OptimizedEmbeddedVideoPlayer
+import com.example.clipcraft.utils.VideoPlayerPool
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.rememberMultiplePermissionsState
 import kotlinx.coroutines.delay
@@ -325,9 +326,10 @@ fun NewMainScreen(
                                 } else {
                                     videoUri.toUri()
                                 }
-                                EmbeddedVideoPlayer(
+                                OptimizedEmbeddedVideoPlayer(
                                     videoUri = uri,
-                                    modifier = Modifier.fillMaxSize()
+                                    modifier = Modifier.fillMaxSize(),
+                                    playerKey = "final_result"
                                 )
                             }
                         }
@@ -528,6 +530,13 @@ fun NewMainScreen(
                     viewModel.skipTutorial()
                 }
             )
+        }
+    }
+    
+    // Освобождаем неиспользуемые плееры при выходе
+    DisposableEffect(Unit) {
+        onDispose {
+            VideoPlayerPool.releaseUnusedPlayers()
         }
     }
 }
