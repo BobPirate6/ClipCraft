@@ -20,6 +20,9 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
+        
+        // Дефолтный network security config для debug
+        manifestPlaceholders["networkSecurityConfig"] = "@xml/network_security_config"
     }
 
     buildTypes {
@@ -31,6 +34,9 @@ android {
                 "proguard-rules.pro"
             )
             // Подпись для release будет настроена отдельно
+            
+            // Используем безопасный network security config для продакшн
+            manifestPlaceholders["networkSecurityConfig"] = "@xml/network_security_config_prod"
         }
         
         // Создаем отдельный buildType для альфа-тестирования
@@ -45,6 +51,9 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            
+            // Используем безопасный network security config для альфа
+            manifestPlaceholders["networkSecurityConfig"] = "@xml/network_security_config_prod"
         }
     }
 

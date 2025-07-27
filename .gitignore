@@ -13,3 +13,23 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# Security related files
+*.jks
+*.keystore
+*.p12
+keystore.properties
+secrets.properties
+
+# Firebase
+google-services.json
+GoogleService-Info.plist
+
+# APK/AAB files
+*.apk
+*.aab
+*.ap_
+
+# Signing configs
+release/
+signing/

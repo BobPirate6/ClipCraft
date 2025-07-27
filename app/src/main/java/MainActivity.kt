@@ -38,6 +38,7 @@ import com.google.android.gms.common.api.ApiException
 import dagger.hilt.android.AndroidEntryPoint
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import com.example.clipcraft.security.SecurityConfig
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -45,6 +46,24 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
+        
+        // Проверка целостности приложения (только в релизных сборках)
+        if (!BuildConfig.DEBUG) {
+            // Проверка на root (опционально, можно показать предупреждение)
+            if (SecurityConfig.isDeviceRooted()) {
+                Log.w("MainActivity", "Device appears to be rooted")
+                // Можно показать предупреждение пользователю, но не блокировать работу
+            }
+            
+            // TODO: Добавьте проверку подписи после создания релизного сертификата
+            // if (!SecurityConfig.verifyAppSignature(this)) {
+            //     Log.e("MainActivity", "App signature verification failed")
+            //     Toast.makeText(this, "Приложение было модифицировано", Toast.LENGTH_LONG).show()
+            //     finish()
+            //     return
+            // }
+        }
+        
         setContent {
             ClipCraftTheme {
                 Surface(

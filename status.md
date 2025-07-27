@@ -1179,6 +1179,61 @@ All reported issues have been resolved. The video editor now provides a smooth, 
 - Clear feedback during all operations
 - Full trim/extend functionality within video bounds
 
+## Alpha v1 Security Enhancements
+
+**Branch**: `alpha_v1`
+**Date**: 2025-01-27
+
+### Security Improvements:
+
+1. **Network Security**:
+   - Created `network_security_config_prod.xml` that enforces HTTPS only
+   - Configured build types to use appropriate network configs:
+     - Debug: allows local development with cleartext
+     - Release/Alpha: HTTPS only for production servers
+   - Updated AndroidManifest to use dynamic network config based on build type
+
+2. **App Integrity**:
+   - Added `SecurityConfig.kt` with methods for:
+     - App signature verification (ready for release cert)
+     - Root detection
+     - Emulator detection
+   - Integrated security checks in MainActivity
+
+3. **ProGuard Configuration**:
+   - Already configured to remove logs in release builds
+   - Obfuscates code and removes debug information
+   - Preserves necessary classes for Firebase, Retrofit, etc.
+
+4. **Secure File Handling**:
+   - Updated `.gitignore` to exclude sensitive files:
+     - Keystore files (*.jks, *.keystore)
+     - google-services.json
+     - Secret properties files
+     - APK/AAB files
+
+5. **Documentation**:
+   - Created `FIREBASE_SECURITY_SETUP.md` with detailed instructions for:
+     - Obtaining SHA fingerprints
+     - Restricting Firebase API keys
+     - Setting up app signing
+     - Security best practices
+
+### Ready for Alpha Testing:
+- ✅ ProGuard configured for code protection
+- ✅ Network security enforces HTTPS in production
+- ✅ Security checks implemented (root detection)
+- ✅ Sensitive files excluded from version control
+- ✅ Documentation for Firebase security setup
+
+### TODO Before Release:
+- [ ] Create release keystore
+- [ ] Add SHA fingerprints to Firebase
+- [ ] Restrict API keys in Google Cloud Console
+- [ ] Add app signature verification with release cert
+- [ ] Configure Firebase security rules
+- [ ] Enable Google Play App Signing
+
 ## Summary
 
 ClipCraft represents a modern Android application that leverages AI for intelligent video editing. The architecture is clean and modular, making it maintainable and testable. The use of Jetpack Compose for UI, Hilt for dependency injection, and WorkManager for background processing demonstrates best practices in Android development. The integration with Firebase services provides a robust backend infrastructure, while the custom AI services enable the core video editing functionality that sets this app apart.
