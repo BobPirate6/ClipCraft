@@ -92,6 +92,7 @@ fun VideoTimelineSimple(
     // Для мгновенной перестановки
     var currentDraggedIndex by remember { mutableStateOf(-1) }
     var reorderedSegments by remember(segments) { mutableStateOf(segments) }
+    var targetDropIndex by remember { mutableStateOf(-1) }
     
     // Эффективный зум для рендеринга
     val effectiveZoom = currentZoom
@@ -151,6 +152,9 @@ fun VideoTimelineSimple(
                 targetIndex -= 1
             }
             
+            // Сохраняем индекс для визуального индикатора
+            targetDropIndex = targetIndex
+            
             // Если нужно переместить сегмент
             if (targetIndex != currentDraggedIndex && targetIndex >= 0 && targetIndex < reorderedSegments.size) {
                 val mutableList = reorderedSegments.toMutableList()
@@ -165,20 +169,30 @@ fun VideoTimelineSimple(
             // Автоскролл при приближении к краям
             val layoutInfo = lazyListState.layoutInfo
             val viewportWidth = layoutInfo.viewportEndOffset - layoutInfo.viewportStartOffset
-            val edgeThreshold = with(density) { 50.dp.toPx() }
-            val scrollSpeed = 5f
+            val edgeThreshold = with(density) { 80.dp.toPx() }
+            val scrollSpeed = 10f
             
-            val fingerViewportX = fingerX
+            // Позиция пальца относительно видимой области
+            val fingerViewportX = currentDragX - lazyListState.firstVisibleItemScrollOffset
             
             when {
                 fingerViewportX < edgeThreshold -> {
+                    // Скроллим влево с анимацией
                     coroutineScope.launch {
-                        lazyListState.scrollBy(-scrollSpeed)
+                        val targetScroll = (lazyListState.firstVisibleItemScrollOffset - viewportWidth / 2).coerceAtLeast(0f)
+                        lazyListState.animateScrollBy(
+                            value = -scrollSpeed,
+                            animationSpec = tween(durationMillis = 100)
+                        )
                     }
                 }
                 fingerViewportX > viewportWidth.toFloat() - edgeThreshold -> {
+                    // Скроллим вправо с анимацией
                     coroutineScope.launch {
-                        lazyListState.scrollBy(scrollSpeed)
+                        lazyListState.animateScrollBy(
+                            value = scrollSpeed,
+                            animationSpec = tween(durationMillis = 100)
+                        )
                     }
                 }
             }
@@ -309,16 +323,31 @@ fun VideoTimelineSimple(
                     items = reorderedSegments,
                     key = { _, segment -> segment.id }
                 ) { index, segment ->
-                    Box(
-                        modifier = Modifier
-                            .animateItemPlacement(
-                                animationSpec = spring(
-                                    dampingRatio = 0.8f,
-                                    stiffness = 400f
-                                )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        // Индикатор позиции вставки ПЕРЕД сегментом
+                        if (draggingSegmentId != null && targetDropIndex == index && index <= currentDraggedIndex) {
+                            Box(
+                                modifier = Modifier
+                                    .width(6.dp)
+                                    .height(90.dp)
+                                    .padding(horizontal = 1.dp)
+                                    .background(
+                                        color = Color(0xFFFFC107),
+                                        shape = RoundedCornerShape(3.dp)
+                                    )
                             )
-                            .zIndex(if (segment.id == draggingSegmentId) 1f else 0f)
-                    ) {
+                        }
+                        
+                        Box(
+                            modifier = Modifier
+                                .animateItemPlacement(
+                                    animationSpec = spring(
+                                        dampingRatio = 0.8f,
+                                        stiffness = 400f
+                                    )
+                                )
+                                .zIndex(if (segment.id == draggingSegmentId) 1f else 0f)
+                        ) {
                         VideoSegmentSimple(
                             segment = segment,
                             index = index,
@@ -338,13 +367,17 @@ fun VideoTimelineSimple(
                                         draggingSegmentId = segment.id
                                         currentDraggedIndex = index
                                         
-                                        // Вычисляем начальную позицию сегмента
-                                        var segmentX = 0f
+                                        // Вычисляем начальную позицию сегмента относительно начала таймлайна
+                                        var segmentX = with(density) { 16.dp.toPx() } // начальный padding
                                         for (i in 0 until index) {
                                             segmentX += reorderedSegments[i].duration * PIXELS_PER_SECOND * effectiveZoom + with(density) { 2.dp.toPx() }
                                         }
-                                        dragStartX = segmentX + dragDelta.x
-                                        currentDragX = dragStartX
+                                        // Добавляем половину ширины текущего сегмента чтобы получить центр
+                                        segmentX += (reorderedSegments[index].duration * PIXELS_PER_SECOND * effectiveZoom) / 2
+                                        
+                                        // Сохраняем начальную позицию центра сегмента
+                                        dragStartX = segmentX
+                                        currentDragX = segmentX + lazyListState.firstVisibleItemScrollOffset
                                         
                                         android.util.Log.d("VideoTimeline", "Drag started: segment=${segment.id}, index=$index")
                                     } else {
@@ -365,11 +398,40 @@ fun VideoTimelineSimple(
                                     dragStartX = 0f
                                     currentDragX = 0f
                                     currentDraggedIndex = -1
+                                    targetDropIndex = -1
                                     reorderedSegments = segments // Сбрасываем к оригинальному порядку
                                 }
                             }
                         )
+                        
+                        // Индикатор позиции вставки ПОСЛЕ сегмента
+                        if (draggingSegmentId != null && targetDropIndex == index && index > currentDraggedIndex) {
+                            Box(
+                                modifier = Modifier
+                                    .width(6.dp)
+                                    .height(90.dp)
+                                    .padding(horizontal = 1.dp)
+                                    .background(
+                                        color = Color(0xFFFFC107),
+                                        shape = RoundedCornerShape(3.dp)
+                                    )
+                            )
+                        }
                     }
+                }
+                
+                // Индикатор в конце списка
+                if (draggingSegmentId != null && targetDropIndex == reorderedSegments.size - 1 && currentDraggedIndex < reorderedSegments.size - 1) {
+                    Box(
+                        modifier = Modifier
+                            .width(6.dp)
+                            .height(90.dp)
+                            .padding(horizontal = 1.dp)
+                            .background(
+                                color = Color(0xFFFFC107),
+                                shape = RoundedCornerShape(3.dp)
+                            )
+                    )
                 }
             }
             
@@ -404,7 +466,7 @@ private fun VideoSegmentSimple(
     // Анимация
     val elevation by animateDpAsState(
         targetValue = when {
-            isDragging -> 24.dp  // Увеличиваем тень при перетаскивании
+            isDragging -> 32.dp  // Еще больше тень при перетаскивании
             isSelected -> 8.dp
             else -> 2.dp
         },
@@ -413,7 +475,7 @@ private fun VideoSegmentSimple(
     )
     
     val scale by animateFloatAsState(
-        targetValue = if (isDragging) 1.1f else 1f,  // Увеличиваем масштаб при перетаскивании
+        targetValue = if (isDragging) 1.15f else 1f,  // Больше масштаб при перетаскивании
         animationSpec = spring(),
         label = "scale"
     )
@@ -436,7 +498,7 @@ private fun VideoSegmentSimple(
     
     // Анимация для плавного появления после перестановки
     val animatedAlpha by animateFloatAsState(
-        targetValue = if (isDragging) 0.8f else 1f,
+        targetValue = if (isDragging) 1f else 1f,  // Убираем прозрачность при перетаскивании
         animationSpec = spring(
             dampingRatio = 0.8f,
             stiffness = 300f
@@ -469,12 +531,12 @@ private fun VideoSegmentSimple(
                     .background(MaterialTheme.colorScheme.surface)
                     .border(
                     width = when {
-                        isDragging -> 3.dp  // Толще обводка при перетаскивании
+                        isDragging -> 4.dp  // Еще толще обводка при перетаскивании
                         isSelected -> 2.dp
                         else -> 1.dp
                     },
                     color = when {
-                        isDragging -> MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
+                        isDragging -> Color(0xFFFFC107)  // Яркий желтый при перетаскивании
                         isSelected -> MaterialTheme.colorScheme.primary
                         else -> Color.White.copy(alpha = 0.3f)
                     },
@@ -608,7 +670,15 @@ private fun VideoSegmentSimple(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.White.copy(alpha = 0.2f))
+                    .background(
+                        Brush.radialGradient(
+                            colors = listOf(
+                                Color.White.copy(alpha = 0.4f),
+                                Color.White.copy(alpha = 0.2f),
+                                Color.Transparent
+                            )
+                        )
+                    )
             )
         }
         
