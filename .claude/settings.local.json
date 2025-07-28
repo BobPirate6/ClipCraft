@@ -23,7 +23,8 @@
       "Bash(find:*)",
       "Bash(powershell:*)",
       "Bash(copy:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(sed:*)"
     ],
     "deny": []
   }

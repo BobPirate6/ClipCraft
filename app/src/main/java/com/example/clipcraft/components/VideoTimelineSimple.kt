@@ -179,20 +179,13 @@ fun VideoTimelineSimple(
                 fingerViewportX < edgeThreshold -> {
                     // Скроллим влево с анимацией
                     coroutineScope.launch {
-                        val targetScroll = (lazyListState.firstVisibleItemScrollOffset - viewportWidth / 2).coerceAtLeast(0f)
-                        lazyListState.animateScrollBy(
-                            value = -scrollSpeed,
-                            animationSpec = tween(durationMillis = 100)
-                        )
+                        lazyListState.scrollBy(-scrollSpeed)
                     }
                 }
                 fingerViewportX > viewportWidth.toFloat() - edgeThreshold -> {
                     // Скроллим вправо с анимацией
                     coroutineScope.launch {
-                        lazyListState.animateScrollBy(
-                            value = scrollSpeed,
-                            animationSpec = tween(durationMillis = 100)
-                        )
+                        lazyListState.scrollBy(scrollSpeed)
                     }
                 }
             }
@@ -323,22 +316,7 @@ fun VideoTimelineSimple(
                     items = reorderedSegments,
                     key = { _, segment -> segment.id }
                 ) { index, segment ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        // Индикатор позиции вставки ПЕРЕД сегментом
-                        if (draggingSegmentId != null && targetDropIndex == index && index <= currentDraggedIndex) {
-                            Box(
-                                modifier = Modifier
-                                    .width(6.dp)
-                                    .height(90.dp)
-                                    .padding(horizontal = 1.dp)
-                                    .background(
-                                        color = Color(0xFFFFC107),
-                                        shape = RoundedCornerShape(3.dp)
-                                    )
-                            )
-                        }
-                        
-                        Box(
+                    Box(
                             modifier = Modifier
                                 .animateItemPlacement(
                                     animationSpec = spring(
@@ -404,35 +382,6 @@ fun VideoTimelineSimple(
                             }
                         )
                         }
-                        
-                        // Индикатор позиции вставки ПОСЛЕ сегмента
-                        if (draggingSegmentId != null && targetDropIndex == index && index > currentDraggedIndex) {
-                            Box(
-                                modifier = Modifier
-                                    .width(6.dp)
-                                    .height(90.dp)
-                                    .padding(horizontal = 1.dp)
-                                    .background(
-                                        color = Color(0xFFFFC107),
-                                        shape = RoundedCornerShape(3.dp)
-                                    )
-                            )
-                        }
-                    }
-                }
-                
-                // Индикатор в конце списка
-                if (draggingSegmentId != null && targetDropIndex == reorderedSegments.size - 1 && currentDraggedIndex < reorderedSegments.size - 1) {
-                    Box(
-                        modifier = Modifier
-                            .width(6.dp)
-                            .height(90.dp)
-                            .padding(horizontal = 1.dp)
-                            .background(
-                                color = Color(0xFFFFC107),
-                                shape = RoundedCornerShape(3.dp)
-                            )
-                    )
                 }
             }
             
