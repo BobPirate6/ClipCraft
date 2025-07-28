@@ -92,6 +92,7 @@ fun VideoTimelineSimple(
     var currentDraggedIndex by remember { mutableStateOf(-1) }
     var reorderedSegments by remember(segments) { mutableStateOf(segments) }
     var targetDropIndex by remember { mutableStateOf(-1) }
+    var visualOffsetCorrection by remember { mutableStateOf(0f) }
     
     // Эффективный зум для рендеринга
     val effectiveZoom = currentZoom
@@ -148,6 +149,15 @@ fun VideoTimelineSimple(
             
             // Если нужно переместить сегмент в массиве
             if (targetIndex != currentDraggedIndex && targetIndex >= 0 && targetIndex <= reorderedSegments.size) {
+                // Вычисляем смещение позиции для коррекции визуального offset
+                var oldPosition = horizontalPadding
+                var newPosition = horizontalPadding
+                
+                // Позиция до перестановки
+                for (i in 0 until currentDraggedIndex) {
+                    oldPosition += reorderedSegments[i].duration * PIXELS_PER_SECOND * effectiveZoom + segmentSpacing
+                }
+                
                 val mutableList = reorderedSegments.toMutableList()
                 val movedSegment = mutableList.removeAt(currentDraggedIndex)
                 
@@ -155,10 +165,19 @@ fun VideoTimelineSimple(
                 val insertIndex = if (targetIndex > currentDraggedIndex) targetIndex - 1 else targetIndex
                 mutableList.add(insertIndex, movedSegment)
                 
+                // Позиция после перестановки
+                for (i in 0 until insertIndex) {
+                    newPosition += mutableList[i].duration * PIXELS_PER_SECOND * effectiveZoom + segmentSpacing
+                }
+                
+                // Корректируем визуальное смещение чтобы сегмент не прыгал
+                val positionDiff = newPosition - oldPosition
+                visualOffsetCorrection += positionDiff
+                
                 reorderedSegments = mutableList
                 currentDraggedIndex = insertIndex
                 
-                android.util.Log.d("VideoTimeline", "Segment reordered to position: $insertIndex")
+                android.util.Log.d("VideoTimeline", "Segment reordered to position: $insertIndex, correction: $positionDiff")
             }
             
             // Автоскролл при приближении к краям (10% от ширины экрана)
@@ -320,10 +339,15 @@ fun VideoTimelineSimple(
                     Box(
                             modifier = Modifier
                                 .animateItemPlacement(
-                                    animationSpec = spring(
-                                        dampingRatio = 0.8f,
-                                        stiffness = 400f
-                                    )
+                                    animationSpec = if (segment.id == draggingSegmentId) {
+                                        // Отключаем анимацию для перетаскиваемого сегмента
+                                        spring(stiffness = 10000f)
+                                    } else {
+                                        spring(
+                                            dampingRatio = 0.8f,
+                                            stiffness = 400f
+                                        )
+                                    }
                                 )
                                 .zIndex(if (segment.id == draggingSegmentId) 1f else 0f)
                         ) {
@@ -333,6 +357,7 @@ fun VideoTimelineSimple(
                             isSelected = segment.id == selectedSegmentId,
                             isDragging = segment.id == draggingSegmentId,
                             zoomLevel = effectiveZoom,
+                            visualOffsetCorrection = if (segment.id == draggingSegmentId) visualOffsetCorrection else 0f,
                             onSegmentClick = { onSegmentClick(segment) },
                             onSegmentDelete = { onSegmentDelete(segment.id) },
                             onSegmentReorder = onSegmentReorder,
@@ -363,6 +388,11 @@ fun VideoTimelineSimple(
                                     } else {
                                         // Обновление позиции при перетаскивании
                                         currentDragX += dragDelta.x
+                                        
+                                        // Передаем коррекцию визуального смещения
+                                        if (visualOffsetCorrection != 0f) {
+                                            android.util.Log.d("VideoTimeline", "Applying visual correction: $visualOffsetCorrection")
+                                        }
                                     }
                                 } else {
                                     // Применяем окончательную перестановку
@@ -379,6 +409,7 @@ fun VideoTimelineSimple(
                                     currentDragX = 0f
                                     currentDraggedIndex = -1
                                     targetDropIndex = -1
+                                    visualOffsetCorrection = 0f
                                     reorderedSegments = segments // Сбрасываем к оригинальному порядку
                                 }
                             }
@@ -398,6 +429,7 @@ private fun VideoSegmentSimple(
     isSelected: Boolean,
     isDragging: Boolean,
     zoomLevel: Float,
+    visualOffsetCorrection: Float = 0f,
     onSegmentClick: () -> Unit,
     onSegmentDelete: () -> Unit,
     onSegmentReorder: (Int, Int) -> Unit,
@@ -465,7 +497,7 @@ private fun VideoSegmentSimple(
             .height(80.dp)
             .offset { 
                 IntOffset(
-                    if (isDragging) dragOffset.x.roundToInt() else 0,
+                    if (isDragging) (dragOffset.x - visualOffsetCorrection).roundToInt() else 0,
                     0 // Игнорируем Y
                 )
             }
