@@ -43,6 +43,7 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import androidx.compose.foundation.Canvas
 import coil.compose.AsyncImage
 import com.example.clipcraft.models.VideoSegment
@@ -91,6 +92,9 @@ fun VideoTimelineSimple(
     var currentDraggedIndex by remember { mutableStateOf(-1) }
     var reorderedSegments by remember(segments) { mutableStateOf(segments) }
     
+    // Индекс для отображения индикатора места вставки
+    var dropIndicatorIndex by remember { mutableStateOf(-1) }
+    
     // Эффективный зум для рендеринга
     val effectiveZoom = currentZoom
     
@@ -117,6 +121,7 @@ fun VideoTimelineSimple(
             // Вычисляем текущую позицию центра перетаскиваемого сегмента
             var accumulatedX = 0f
             val segmentSpacing = with(density) { 2.dp.toPx() }
+            val horizontalPadding = with(density) { 16.dp.toPx() }
             
             // Находим x-координату перетаскиваемого сегмента
             for (i in 0 until currentDraggedIndex) {
@@ -125,7 +130,36 @@ fun VideoTimelineSimple(
             
             val draggedSegment = reorderedSegments[currentDraggedIndex]
             val draggedWidth = draggedSegment.duration * PIXELS_PER_SECOND * effectiveZoom
+            // dragPosition.x уже содержит корректированное смещение от центра
             val draggedCenterX = accumulatedX + draggedWidth / 2 + dragPosition.x
+            
+            // Находим позицию для индикатора места вставки
+            var newDropIndex = 0
+            accumulatedX = 0f
+            
+            // Проверяем позицию относительно каждого сегмента
+            for (i in reorderedSegments.indices) {
+                if (i == currentDraggedIndex) {
+                    // Пропускаем перетаскиваемый сегмент
+                    accumulatedX += reorderedSegments[i].duration * PIXELS_PER_SECOND * effectiveZoom + segmentSpacing
+                    continue
+                }
+                
+                val segmentWidth = reorderedSegments[i].duration * PIXELS_PER_SECOND * effectiveZoom
+                val segmentCenterX = accumulatedX + segmentWidth / 2
+                
+                if (draggedCenterX > segmentCenterX) {
+                    newDropIndex = i + 1
+                    if (i >= currentDraggedIndex) {
+                        newDropIndex = i
+                    }
+                }
+                
+                accumulatedX += segmentWidth + segmentSpacing
+            }
+            
+            // Обновляем индекс индикатора
+            dropIndicatorIndex = newDropIndex
             
             // Проверяем, нужно ли поменять местами с соседними сегментами
             var newIndex = currentDraggedIndex
@@ -313,6 +347,7 @@ fun VideoTimelineSimple(
                                     stiffness = 400f
                                 )
                             )
+                            .zIndex(if (segment.id == draggingSegmentId) 1f else 0f)
                     ) {
                         VideoSegmentSimple(
                             segment = segment,
@@ -345,9 +380,58 @@ fun VideoTimelineSimple(
                                     draggingSegmentId = null
                                     dragPosition = Offset.Zero
                                     currentDraggedIndex = -1
+                                    dropIndicatorIndex = -1
                                     reorderedSegments = segments // Сбрасываем к оригинальному порядку
                                 }
                             }
+                        )
+                    }
+                }
+            }
+            
+            // Индикатор места вставки при перетаскивании
+            if (draggingSegmentId != null && dropIndicatorIndex >= 0 && currentDraggedIndex >= 0) {
+                // Визуальный индикатор места вставки
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .fillMaxHeight()
+                        .padding(top = 30.dp)
+                ) {
+                    val segmentSpacing = 2.dp
+                    var indicatorX = 16.dp // начальный padding
+                    
+                    // Вычисляем позицию индикатора
+                    for (i in 0 until dropIndicatorIndex) {
+                        if (i < reorderedSegments.size && i != currentDraggedIndex) {
+                            val segmentWidth = with(density) { 
+                                (reorderedSegments[i].duration * PIXELS_PER_SECOND * effectiveZoom).toDp() 
+                            }
+                            indicatorX += segmentWidth + segmentSpacing
+                        }
+                    }
+                    
+                    // Показываем прямоугольник с белой обводкой в месте вставки
+                    if (currentDraggedIndex >= 0 && currentDraggedIndex < reorderedSegments.size) {
+                        val draggedSegmentWidth = with(density) { 
+                            (reorderedSegments[currentDraggedIndex].duration * PIXELS_PER_SECOND * effectiveZoom).toDp() 
+                        }
+                        
+                        Box(
+                            modifier = Modifier
+                                .offset(x = indicatorX - segmentSpacing / 2)
+                                .width(draggedSegmentWidth + segmentSpacing)
+                                .height(80.dp)
+                                .align(Alignment.CenterStart)
+                                .background(
+                                    color = Color.White.copy(alpha = 0.1f),
+                                    shape = RoundedCornerShape(8.dp)
+                                )
+                                .border(
+                                    width = 2.dp,
+                                    color = Color.White.copy(alpha = 0.8f),
+                                    shape = RoundedCornerShape(8.dp)
+                                )
                         )
                     }
                 }
@@ -374,6 +458,7 @@ private fun VideoSegmentSimple(
     // Состояние для drag
     var isDragging by remember { mutableStateOf(false) }
     var dragOffset by remember { mutableStateOf(Offset.Zero) }
+    var initialTouchOffset by remember { mutableStateOf(Offset.Zero) }
     
     // Состояние для trim
     var isTrimming by remember { mutableStateOf(false) }
@@ -507,6 +592,7 @@ private fun VideoSegmentSimple(
                             else -> {
                                 // Упрощаем логику - убираем long press
                                 isDragging = true
+                                initialTouchOffset = offset // Запоминаем точку касания внутри сегмента
                                 dragOffset = Offset.Zero
                                 onDragStateChange(true, Offset.Zero)
                             }
@@ -531,8 +617,13 @@ private fun VideoSegmentSimple(
                             }
                             isDragging -> {
                                 dragOffset += dragAmount
-                                // Передаем текущую позицию для отслеживания
-                                onDragStateChange(true, dragOffset)
+                                // Передаем текущую позицию для отслеживания с учетом начальной точки касания
+                                // Корректируем смещение чтобы палец оставался в той же точке сегмента
+                                val correctedOffset = Offset(
+                                    dragOffset.x - initialTouchOffset.x + size.width / 2,
+                                    dragOffset.y
+                                )
+                                onDragStateChange(true, correctedOffset)
                             }
                         }
                     },
