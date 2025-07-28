@@ -49,7 +49,6 @@ import coil.compose.AsyncImage
 import com.example.clipcraft.models.VideoSegment
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.Job
 import kotlin.math.roundToInt
 import kotlin.math.abs
 import kotlin.math.max
@@ -120,72 +119,74 @@ fun VideoTimelineSimple(
             val segmentSpacing = with(density) { 2.dp.toPx() }
             val horizontalPadding = with(density) { 16.dp.toPx() }
             
-            // Вычисляем позицию пальца относительно начала таймлайна
-            val fingerX = currentDragX - lazyListState.firstVisibleItemScrollOffset + horizontalPadding
+            // Позиция пальца относительно начала таймлайна (с учетом скролла)
+            val fingerX = currentDragX + lazyListState.firstVisibleItemScrollOffset
             
-            // Находим, между какими сегментами находится палец
+            // Находим целевую позицию для сегмента
             var accumulatedX = horizontalPadding
             var targetIndex = 0
             
             for (i in reorderedSegments.indices) {
                 if (i == currentDraggedIndex) {
-                    // Пропускаем текущий перетаскиваемый сегмент
+                    // Учитываем пространство текущего сегмента, но не проверяем его
+                    accumulatedX += reorderedSegments[i].duration * PIXELS_PER_SECOND * effectiveZoom + segmentSpacing
                     continue
                 }
                 
                 val segmentWidth = reorderedSegments[i].duration * PIXELS_PER_SECOND * effectiveZoom
                 val segmentCenterX = accumulatedX + segmentWidth / 2
                 
+                // Проверяем, перешел ли палец через центр сегмента
                 if (fingerX > segmentCenterX) {
-                    targetIndex = i + 1
-                    if (i > currentDraggedIndex) {
-                        targetIndex = i
-                    }
+                    targetIndex = if (i < currentDraggedIndex) i + 1 else i
+                } else {
+                    break
                 }
                 
                 accumulatedX += segmentWidth + segmentSpacing
             }
             
-            // Ограничиваем targetIndex
-            targetIndex = targetIndex.coerceIn(0, reorderedSegments.size)
-            if (targetIndex > currentDraggedIndex) {
-                targetIndex -= 1
-            }
-            
-            // Сохраняем индекс для визуального индикатора
-            targetDropIndex = targetIndex
-            
-            // Если нужно переместить сегмент
-            if (targetIndex != currentDraggedIndex && targetIndex >= 0 && targetIndex < reorderedSegments.size) {
+            // Если нужно переместить сегмент в массиве
+            if (targetIndex != currentDraggedIndex && targetIndex >= 0 && targetIndex <= reorderedSegments.size) {
                 val mutableList = reorderedSegments.toMutableList()
                 val movedSegment = mutableList.removeAt(currentDraggedIndex)
-                mutableList.add(targetIndex, movedSegment)
-                reorderedSegments = mutableList
-                currentDraggedIndex = targetIndex
                 
-                android.util.Log.d("VideoTimeline", "Segment moved to position: $targetIndex")
+                // Корректируем индекс вставки
+                val insertIndex = if (targetIndex > currentDraggedIndex) targetIndex - 1 else targetIndex
+                mutableList.add(insertIndex, movedSegment)
+                
+                reorderedSegments = mutableList
+                currentDraggedIndex = insertIndex
+                
+                android.util.Log.d("VideoTimeline", "Segment reordered to position: $insertIndex")
             }
             
-            // Автоскролл при приближении к краям
+            // Автоскролл при приближении к краям (10% от ширины экрана)
             val layoutInfo = lazyListState.layoutInfo
             val viewportWidth = layoutInfo.viewportEndOffset - layoutInfo.viewportStartOffset
-            val edgeThreshold = with(density) { 80.dp.toPx() }
-            val scrollSpeed = 10f
+            val edgeThreshold = viewportWidth * 0.1f // 10% от края
+            val scrollSpeed = 8f
             
             // Позиция пальца относительно видимой области
-            val fingerViewportX = currentDragX - lazyListState.firstVisibleItemScrollOffset
+            val fingerViewportX = currentDragX
             
             when {
                 fingerViewportX < edgeThreshold -> {
-                    // Скроллим влево с анимацией
+                    // Скроллим влево плавно
                     coroutineScope.launch {
-                        lazyListState.scrollBy(-scrollSpeed)
+                        delay(100) // Небольшая задержка для плавности
+                        if (draggingSegmentId != null) {
+                            lazyListState.scrollBy(-scrollSpeed)
+                        }
                     }
                 }
-                fingerViewportX > viewportWidth.toFloat() - edgeThreshold -> {
-                    // Скроллим вправо с анимацией
+                fingerViewportX > viewportWidth - edgeThreshold -> {
+                    // Скроллим вправо плавно
                     coroutineScope.launch {
-                        lazyListState.scrollBy(scrollSpeed)
+                        delay(100) // Небольшая задержка для плавности
+                        if (draggingSegmentId != null) {
+                            lazyListState.scrollBy(scrollSpeed)
+                        }
                     }
                 }
             }
@@ -345,19 +346,20 @@ fun VideoTimelineSimple(
                                         draggingSegmentId = segment.id
                                         currentDraggedIndex = index
                                         
-                                        // Вычисляем начальную позицию сегмента относительно начала таймлайна
-                                        var segmentX = with(density) { 16.dp.toPx() } // начальный padding
+                                        // Вычисляем начальную позицию пальца относительно экрана
+                                        // dragDelta содержит начальную позицию касания в сегменте
+                                        var segmentPositionInList = with(density) { 16.dp.toPx() }
                                         for (i in 0 until index) {
-                                            segmentX += reorderedSegments[i].duration * PIXELS_PER_SECOND * effectiveZoom + with(density) { 2.dp.toPx() }
+                                            segmentPositionInList += reorderedSegments[i].duration * PIXELS_PER_SECOND * effectiveZoom + with(density) { 2.dp.toPx() }
                                         }
-                                        // Добавляем половину ширины текущего сегмента чтобы получить центр
-                                        segmentX += (reorderedSegments[index].duration * PIXELS_PER_SECOND * effectiveZoom) / 2
                                         
-                                        // Сохраняем начальную позицию центра сегмента
-                                        dragStartX = segmentX
-                                        currentDragX = segmentX + lazyListState.firstVisibleItemScrollOffset
+                                        // Позиция пальца на экране
+                                        val fingerScreenX = segmentPositionInList - lazyListState.firstVisibleItemScrollOffset + dragDelta.x
                                         
-                                        android.util.Log.d("VideoTimeline", "Drag started: segment=${segment.id}, index=$index")
+                                        dragStartX = fingerScreenX
+                                        currentDragX = fingerScreenX
+                                        
+                                        android.util.Log.d("VideoTimeline", "Drag started: segment=${segment.id}, index=$index, fingerX=$fingerScreenX")
                                     } else {
                                         // Обновление позиции при перетаскивании
                                         currentDragX += dragDelta.x
@@ -406,6 +408,7 @@ private fun VideoSegmentSimple(
     
     // Состояние для drag
     var isDragging by remember { mutableStateOf(false) }
+    var dragOffset by remember { mutableStateOf(Offset.Zero) }
     
     // Состояние для trim
     var isTrimming by remember { mutableStateOf(false) }
@@ -460,6 +463,12 @@ private fun VideoSegmentSimple(
         modifier = Modifier
             .width(segmentWidthDp) // Фиксированная ширина, не меняется при триммировании
             .height(80.dp)
+            .offset { 
+                IntOffset(
+                    if (isDragging) dragOffset.x.roundToInt() else 0,
+                    0 // Игнорируем Y
+                )
+            }
             .graphicsLayer {
                 alpha = animatedAlpha
             }
@@ -533,6 +542,7 @@ private fun VideoSegmentSimple(
                             else -> {
                                 // Упрощаем логику - убираем long press
                                 isDragging = true
+                                dragOffset = Offset.Zero
                                 onDragStateChange(true, offset)
                             }
                         }
@@ -555,8 +565,13 @@ private fun VideoSegmentSimple(
                                 // Только визуальная обратная связь, без вызова onSegmentTrim
                             }
                             isDragging -> {
-                                // Просто передаем текущее смещение для отслеживания позиции
-                                onDragStateChange(true, Offset(dragAmount.x, dragAmount.y))
+                                // Обновляем визуальное смещение с небольшим сглаживанием
+                                dragOffset = Offset(
+                                    dragOffset.x + dragAmount.x * 0.9f, // Небольшое сглаживание
+                                    0f
+                                )
+                                // Передаем позицию для отслеживания
+                                onDragStateChange(true, dragAmount)
                             }
                         }
                     },
@@ -567,6 +582,7 @@ private fun VideoSegmentSimple(
                                 android.util.Log.d("VideoTimeline", "Drag end for segment at index=$index")
                                 
                                 isDragging = false
+                                dragOffset = Offset.Zero
                                 onDragStateChange(false, Offset.Zero)
                             }
                             isTrimming && trimType == TrimType.LEFT -> {
