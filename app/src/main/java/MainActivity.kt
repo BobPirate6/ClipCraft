@@ -32,7 +32,6 @@ import com.example.clipcraft.models.ProcessingState
 import com.example.clipcraft.ui.theme.ClipCraftTheme
 import com.example.clipcraft.components.FeedbackDialog
 import com.example.clipcraft.components.NoCreditsDialog
-import com.example.clipcraft.components.MemoryDebugOverlay
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.android.gms.common.api.ApiException
@@ -279,9 +278,6 @@ fun ClipCraftApp() {
             }
         }
     }
-    
-    // Memory debug overlay for debug builds
-    MemoryDebugOverlay()
 }
 
 @Composable

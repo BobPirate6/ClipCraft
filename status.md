@@ -1338,3 +1338,122 @@ ClipCraft represents a modern Android application that leverages AI for intellig
 - Consider dynamic pool sizing based on available memory
 - Add analytics to track memory usage patterns
 - Potentially implement player pre-warming for smoother transitions
+
+## 20. Drag-to-Reorder Implementation [DRAG-REORDER]
+
+### Issue: Implementing Professional Drag-to-Reorder
+**Date**: 2025-01-28
+**Branch**: alpha_v2
+
+**Requirements**:
+1. Segment should visually follow finger precisely on X-axis only (ignore Y movement)
+2. Segment should "float" above timeline showing potential position
+3. Other segments should animate to make space when finger crosses their center
+4. Drop indicator (rounded rectangle with white border) between segments
+5. Auto-scroll when dragging near edges (10% zones)
+6. No jumping when array is reordered
+
+**Implementation Details**:
+
+1. **Visual Following with Offset Tracking**:
+   ```kotlin
+   // State for precise finger following
+   var dragOffset by remember { mutableStateOf(Offset.Zero) }
+   var visualOffsetCorrection by remember { mutableStateOf(0f) }
+   
+   // In drag gesture
+   onDrag = { change, dragAmount ->
+       // Visual following with smoothing factor
+       dragOffset = Offset(
+           dragOffset.x + dragAmount.x * 0.9f, // Smoothing
+           0f // Ignore Y
+       )
+   }
+   ```
+
+2. **Elevated Dragged Segment**:
+   ```kotlin
+   Box(
+       modifier = Modifier
+           .offset { 
+               IntOffset(
+                   if (isDragging) (dragOffset.x - visualOffsetCorrection).roundToInt() else 0,
+                   0 // Always 0 for Y
+               )
+           }
+           .zIndex(if (isDragging) 1f else 0f) // Float above others
+           .alpha(if (isDragging) 0.8f else 1f) // Slight transparency
+           .scale(if (isDragging) 1.05f else 1f) // Slightly larger
+   )
+   ```
+
+3. **Discrete Position Changes**:
+   - Segments only move when finger crosses their center point
+   - Visual position tracked separately from array position
+   - Smooth spring animations for segment repositioning:
+   ```kotlin
+   items(segments, key = { it.id }) { segment ->
+       Box(
+           modifier = Modifier.animateItemPlacement(
+               animationSpec = spring(
+                   dampingRatio = 0.8f,
+                   stiffness = 400f
+               )
+           )
+       )
+   }
+   ```
+
+4. **Visual Offset Correction**:
+   - **Problem**: Segment jumped when array was reordered
+   - **Solution**: Calculate position difference and apply correction:
+   ```kotlin
+   // When reordering happens
+   if (targetIndex != draggedFromIndex) {
+       val oldPosition = calculateSegmentPosition(draggedFromIndex)
+       val newPosition = calculateSegmentPosition(targetIndex)
+       visualOffsetCorrection = newPosition - oldPosition
+       
+       // Reorder the array
+       reorderSegments(draggedFromIndex, targetIndex)
+       draggedFromIndex = targetIndex
+   }
+   ```
+
+5. **Auto-Scroll Implementation**:
+   ```kotlin
+   // Check if near edges
+   val scrollZoneSize = lazyListState.layoutInfo.viewportSize.width * 0.1f
+   when {
+       localX < scrollZoneSize -> {
+           // Scroll left
+           scope.launch {
+               lazyListState.scrollBy(-5f)
+           }
+       }
+       localX > viewportWidth - scrollZoneSize -> {
+           // Scroll right  
+           scope.launch {
+               lazyListState.scrollBy(5f)
+           }
+       }
+   }
+   ```
+
+6. **Drop Indicator** (attempted but removed):
+   - Initially tried white border rounded rectangle
+   - LazyRow limitations prevented proper overlay rendering
+   - Alternative: segments animate to show space for drop position
+
+**Key Technical Decisions**:
+1. Used screen coordinates for position tracking (more reliable than content coordinates)
+2. Separated visual position from data position to prevent jumping
+3. Applied smoothing factor (0.9) for more natural finger following
+4. Used spring animations for professional-looking transitions
+
+**Result**: 
+- Segment follows finger smoothly on X-axis only
+- No jumping when segments reorder
+- Clear visual feedback with elevation and transparency
+- Smooth animations when segments make space
+- Professional drag-to-reorder experience matching industry standards

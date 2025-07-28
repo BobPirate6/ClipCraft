@@ -55,7 +55,7 @@ import kotlin.math.max
 import kotlin.math.min
 
 private const val PIXELS_PER_SECOND = 100f
-private val ZOOM_LEVELS = listOf(0.5f, 0.75f, 1.0f, 1.5f, 2.0f, 3.0f, 5.0f)
+private val ZOOM_LEVELS = listOf(0.5f, 0.6f, 0.7f, 0.8f, 0.9f, 1.0f, 1.1f, 1.2f, 1.3f, 1.4f, 1.5f, 1.6f, 1.7f, 1.8f, 1.9f, 2.0f, 2.5f, 3.0f, 3.5f, 4.0f, 4.5f, 5.0f)
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -228,8 +228,8 @@ fun VideoTimelineSimple(
                     val newZoom = if (smallerZooms.isNotEmpty()) {
                         smallerZooms.last().coerceAtLeast(minZoom)
                     } else {
-                        // Уменьшаем на фиксированный шаг
-                        (currentZoom - 0.5f).coerceAtLeast(minZoom)
+                        // Уменьшаем на 10%
+                        (currentZoom * 0.9f).coerceAtLeast(minZoom)
                     }
                     currentZoom = newZoom
                     onZoomChange(newZoom)
@@ -275,8 +275,8 @@ fun VideoTimelineSimple(
                     val newZoom = if (largerZooms.isNotEmpty()) {
                         largerZooms.first()
                     } else {
-                        // Увеличиваем на фиксированный шаг
-                        (currentZoom + 0.5f).coerceAtMost(ZOOM_LEVELS.last())
+                        // Увеличиваем на 10%
+                        (currentZoom * 1.1f).coerceAtMost(ZOOM_LEVELS.last())
                     }
                     currentZoom = newZoom
                     onZoomChange(newZoom)
