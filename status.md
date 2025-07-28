@@ -1457,3 +1457,53 @@ ClipCraft represents a modern Android application that leverages AI for intellig
 - Clear visual feedback with elevation and transparency
 - Smooth animations when segments make space
 - Professional drag-to-reorder experience matching industry standards
+
+## 21. Left Edge Trimming Behavior Fix [LEFT-TRIM-FIX]
+
+### Issue: Left Edge Trim Visual Feedback
+**Date**: 2025-01-28
+**Branch**: v3
+
+**Problem**:
+When trimming from the left edge, the right edge of the segment appeared to move visually instead of the left edge following the finger. The segment's position stayed fixed while its visual content shrank from the left.
+
+**Expected Behavior**:
+1. When trimming left edge (shortening):
+   - Left edge follows finger movement
+   - Right edge stays in place
+   - After release, segments snap together to fill gaps
+   
+2. When extending left edge (lengthening):
+   - Left edge stays in place
+   - Right edge and subsequent segments move right
+
+**Implementation**:
+1. Added `leftTrimPositionOffset` state to track segment position during left trim
+2. Modified the segment's offset to move with the finger during left trim:
+   ```kotlin
+   .offset { 
+       IntOffset(
+           when {
+               isDragging -> (dragOffset.x - visualOffsetCorrection).roundToInt()
+               isTrimming && trimType == TrimType.LEFT -> leftTrimPositionOffset.roundToInt()
+               else -> 0
+           },
+           0
+       )
+   }
+   ```
+3. Updated drag handler to set position offset while trimming:
+   ```kotlin
+   isTrimming && trimType == TrimType.LEFT -> {
+       // ... existing trim logic ...
+       leftTrimPositionOffset = visualTrimOffset  // Segment follows finger
+   }
+   ```
+4. Added `onSnapSegments` callback to trigger segment snapping after trim
+5. Connected to existing `snapSegmentsTogether()` function in VideoEditorViewModel
+
+**Result**:
+- Left edge now follows finger during trim
+- Segment moves horizontally while being trimmed
+- After release, segments automatically snap together to remove gaps
+- Smooth visual feedback throughout the operation

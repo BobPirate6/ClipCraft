@@ -411,6 +411,10 @@ fun VideoEditorScreen(
             },
             onZoomChange = { newZoom ->
                 viewModel.updateZoomLevel(newZoom)
+            },
+            onSnapSegments = {
+                // Snap сегментов после триммирования
+                viewModel.snapSegmentsTogether()
             }
         )
         

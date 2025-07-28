@@ -71,7 +71,8 @@ fun VideoTimelineSimple(
     onSegmentTrim: (String, Float, Boolean) -> Unit = { _, _, _ -> },
     onPositionChange: (Float) -> Unit = {},
     onZoomChange: (Float) -> Unit = {},
-    selectedSegmentId: String? = null
+    selectedSegmentId: String? = null,
+    onSnapSegments: () -> Unit = {}  // Новый коллбэк для snap после триммирования
 ) {
     val density = LocalDensity.current
     val lazyListState = rememberLazyListState()
@@ -364,6 +365,7 @@ fun VideoTimelineSimple(
                             onSegmentTrim = { deltaTime, isStart ->
                                 onSegmentTrim(segment.id, deltaTime, isStart)
                             },
+                            onSnapSegments = onSnapSegments,
                             onDragStateChange = { isDragging, dragDelta ->
                                 if (isDragging) {
                                     if (draggingSegmentId == null) {
@@ -434,7 +436,8 @@ private fun VideoSegmentSimple(
     onSegmentDelete: () -> Unit,
     onSegmentReorder: (Int, Int) -> Unit,
     onSegmentTrim: (Float, Boolean) -> Unit,
-    onDragStateChange: (Boolean, Offset) -> Unit
+    onDragStateChange: (Boolean, Offset) -> Unit,
+    onSnapSegments: () -> Unit = {}
 ) {
     val density = LocalDensity.current
     
@@ -447,6 +450,7 @@ private fun VideoSegmentSimple(
     var trimType by remember { mutableStateOf<TrimType?>(null) }
     var trimOffset by remember { mutableStateOf(0f) }
     var visualTrimOffset by remember { mutableStateOf(0f) } // Для визуальной обратной связи
+    var leftTrimPositionOffset by remember { mutableStateOf(0f) } // Смещение позиции при левом тримме
     
     // Анимация
     val elevation by animateDpAsState(
@@ -473,7 +477,7 @@ private fun VideoSegmentSimple(
     // Визуальная ширина для отображения обрезанного контента
     val visualWidth = if (isTrimming) {
         when (trimType) {
-            TrimType.LEFT -> baseWidthPx - visualTrimOffset
+            TrimType.LEFT -> baseWidthPx  // Не меняем ширину при левом тримме
             TrimType.RIGHT -> baseWidthPx + visualTrimOffset
             else -> baseWidthPx
         }
@@ -497,7 +501,11 @@ private fun VideoSegmentSimple(
             .height(80.dp)
             .offset { 
                 IntOffset(
-                    if (isDragging) (dragOffset.x - visualOffsetCorrection).roundToInt() else 0,
+                    when {
+                        isDragging -> (dragOffset.x - visualOffsetCorrection).roundToInt()
+                        isTrimming && trimType == TrimType.LEFT -> leftTrimPositionOffset.roundToInt()
+                        else -> 0
+                    },
                     0 // Игнорируем Y
                 )
             }
@@ -510,7 +518,7 @@ private fun VideoSegmentSimple(
             modifier = Modifier
                 .fillMaxHeight()
                 .width(with(density) { visualWidth.coerceAtLeast(20f).toDp() })
-                .align(if (isTrimming && trimType == TrimType.LEFT) Alignment.CenterEnd else Alignment.CenterStart)
+                .align(Alignment.CenterStart)  // Всегда выравниваем по началу
         ) {
             // Основной контейнер сегмента
             Box(
@@ -582,14 +590,17 @@ private fun VideoSegmentSimple(
                     onDrag = { _, dragAmount ->
                         when {
                             isTrimming && trimType == TrimType.LEFT -> {
-                                // Ограничиваем визуальное изменение, чтобы сегмент не выходил за пределы
+                                // При тримминге слева двигаем весь сегмент за пальцем
                                 val newVisualOffset = visualTrimOffset + dragAmount.x
                                 val maxLeftMovement = segment.duration * PIXELS_PER_SECOND * zoomLevel - 20f // Минимум 20px ширина
-                                // Разрешаем расширение до начала видео (0f)
+                                // Разрешаем расширение до начала видео
                                 val maxLeftExpansion = -segment.inPoint * PIXELS_PER_SECOND * zoomLevel
                                 
                                 visualTrimOffset = newVisualOffset.coerceIn(maxLeftExpansion, maxLeftMovement)
                                 trimOffset = visualTrimOffset
+                                
+                                // Обновляем позицию сегмента для следования за пальцем
+                                leftTrimPositionOffset = visualTrimOffset
                             }
                             isTrimming && trimType == TrimType.RIGHT -> {
                                 trimOffset += dragAmount.x
@@ -631,6 +642,10 @@ private fun VideoSegmentSimple(
                                 trimType = null
                                 trimOffset = 0f
                                 visualTrimOffset = 0f
+                                leftTrimPositionOffset = 0f
+                                
+                                // Вызываем snap к соседним сегментам после триммирования
+                                onSnapSegments()
                             }
                             isTrimming && trimType == TrimType.RIGHT -> {
                                 // Применяем изменения только в конце
@@ -764,6 +779,7 @@ private fun VideoSegmentSimple(
                 )
             }
         }
+            }
     }
 }
 

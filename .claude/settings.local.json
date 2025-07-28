@@ -24,7 +24,8 @@
       "Bash(powershell:*)",
       "Bash(copy:*)",
       "Bash(grep:*)",
-      "Bash(sed:*)"
+      "Bash(sed:*)",
+      "Bash(git merge:*)"
     ],
     "deny": []
   }
