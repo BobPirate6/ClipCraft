@@ -22,7 +22,8 @@
       "Bash(adb shell run-as:*)",
       "Bash(find:*)",
       "Bash(powershell:*)",
-      "Bash(copy:*)"
+      "Bash(copy:*)",
+      "Bash(grep:*)"
     ],
     "deny": []
   }

@@ -403,6 +403,7 @@ fun VideoTimelineSimple(
                                 }
                             }
                         )
+                        }
                         
                         // Индикатор позиции вставки ПОСЛЕ сегмента
                         if (draggingSegmentId != null && targetDropIndex == index && index > currentDraggedIndex) {
