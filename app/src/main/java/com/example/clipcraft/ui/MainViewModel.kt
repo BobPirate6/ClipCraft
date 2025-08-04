@@ -3,11 +3,13 @@ package com.example.clipcraft.ui
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.speech.RecognizerIntent
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.result.ActivityResultLauncher
+import androidx.core.content.FileProvider
 import androidx.core.net.toUri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -991,8 +993,23 @@ class MainViewModel @Inject constructor(
                 // Уже content URI
                 Uri.parse(currentState.result)
             } else {
-                // Файловый путь - преобразуем в URI
-                currentState.result.toUri()
+                // Файловый путь - используем FileProvider для создания content URI
+                try {
+                    val file = File(currentState.result)
+                    if (file.exists()) {
+                        FileProvider.getUriForFile(
+                            context,
+                            "${context.packageName}.fileprovider",
+                            file
+                        )
+                    } else {
+                        Log.e(TAG, "File does not exist: ${currentState.result}")
+                        return
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error creating content URI: ${e.message}")
+                    return
+                }
             }
             
             val shareIntent = Intent(Intent.ACTION_SEND).apply {
@@ -1000,7 +1017,16 @@ class MainViewModel @Inject constructor(
                 putExtra(Intent.EXTRA_STREAM, videoUri)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
-            context.startActivity(Intent.createChooser(shareIntent, "Поделиться видео"))
+            
+            // Предоставляем разрешения всем приложениям, которые могут обработать intent
+            val chooser = Intent.createChooser(shareIntent, "Поделиться видео")
+            val resInfoList = context.packageManager.queryIntentActivities(chooser, PackageManager.MATCH_DEFAULT_ONLY)
+            for (resolveInfo in resInfoList) {
+                val packageName = resolveInfo.activityInfo.packageName
+                context.grantUriPermission(packageName, videoUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            
+            context.startActivity(chooser)
         }
     }
 
