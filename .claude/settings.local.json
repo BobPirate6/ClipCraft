@@ -40,7 +40,11 @@
       "Bash(dir:*)",
       "Bash(git rm:*)",
       "Bash(del nul)",
-      "Bash(.\\\\gradlew:*)"
+      "Bash(.\\\\gradlew:*)",
+      "Bash(adb logcat:*)",
+      "Bash(adb:*)",
+      "Bash(.\\gradlew.bat compileDebugKotlin:*)",
+      "Bash(.gradlew compileDebugKotlin)"
     ],
     "deny": []
   }

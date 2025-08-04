@@ -39,9 +39,22 @@ fun OptimizedEmbeddedVideoPlayer(
     var duration by remember { mutableStateOf(0L) }
     
     // Get player from pool
-    val exoPlayer = remember(videoUri) {
+    val exoPlayer = remember(playerKey, videoUri.toString()) {
+        Log.d("OptimizedEmbeddedVideoPlayer", "Creating/getting player for: $videoUri with key: $playerKey")
         VideoPlayerPool.getPlayer(context, videoUri, playerKey).apply {
             // Reset player state
+            seekTo(0)
+            playWhenReady = true
+            Log.d("clipcraftlogic", "Player created/retrieved for video: $videoUri")
+        }
+    }
+    
+    // Update video when URI changes
+    LaunchedEffect(videoUri, playerKey) {
+        Log.d("clipcraftlogic", "Video URI or key changed, updating player: $videoUri")
+        exoPlayer.apply {
+            setMediaItem(androidx.media3.common.MediaItem.fromUri(videoUri))
+            prepare()
             seekTo(0)
             playWhenReady = true
         }

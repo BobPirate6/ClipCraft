@@ -231,8 +231,14 @@ fun ClipCraftApp() {
                         is ProcessingState.Success -> {
                             Log.d("videoeditorclipcraft", "VideoEditor: Success state with editPlan=${state.editPlan != null}")
                             Log.d("videoeditorclipcraft", "VideoEditor: Result path = ${state.result}")
+                            Log.d("clipcraftlogic", "=== Opening VideoEditorScreen (Success) ===")
+                            Log.d("clipcraftlogic", "Edit plan segments: ${state.editPlan?.finalEdit?.size}")
+                            Log.d("clipcraftlogic", "Video analyses: ${state.videoAnalyses?.size}")
+                            Log.d("clipcraftlogic", "Result path: ${state.result}")
+                            Log.d("clipcraftlogic", "Editing mode: ${editingState.mode}")
                             if (state.editPlan != null && state.videoAnalyses != null) {
                                 val selectedVideos by viewModel.selectedVideos.collectAsState()
+                                Log.d("clipcraftlogic", "Selected videos: ${selectedVideos.size}")
                                 VideoEditorScreen(
                                     editPlan = state.editPlan,
                                     videoAnalyses = state.videoAnalyses,

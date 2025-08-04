@@ -86,29 +86,43 @@ class VideoEditorViewModel @Inject constructor(
     private var _entrySegments: List<VideoSegment> = emptyList()
     private var _entryVideoPath: String? = null
     
+    // Track current session to detect changes
+    private var _currentSessionId: String? = null
+    
     init {
         Log.d(TAG, "VideoEditorViewModel init called")
+        Log.d("clipcraftlogic", "=== VideoEditorViewModel INIT ===")
+        Log.d("clipcraftlogic", "Current video state session: ${videoStateManager.currentState.value?.sessionId}")
+        Log.d("clipcraftlogic", "Current video state type: ${videoStateManager.currentState.value?.javaClass?.simpleName}")
         
         // Проверяем, нужно ли очистить состояние
         if (videoEditorStateManager.shouldClearEditorState()) {
             Log.d(TAG, "Clearing editor state as requested")
+            Log.d("clipcraftlogic", "Editor state should be cleared - clearing now")
             clearAllState()
+            Log.d("clipcraftlogic", "Editor state cleared")
         } else {
+            Log.d("clipcraftlogic", "Restoring previous editor state")
             restoreState()
             Log.d(TAG, "After restoreState: segments=${_timelineState.value.segments.size}")
+            Log.d("clipcraftlogic", "State restored, segments count: ${_timelineState.value.segments.size}")
         }
         
         // Проверяем наличие обновлений от голосового редактирования
+        Log.d("clipcraftlogic", "Checking for pending updates")
         checkForPendingUpdates()
         
         // Подписываемся на обновления состояния от оркестратора
         viewModelScope.launch {
             videoEditorOrchestrator.currentSession.collect { session ->
                 session?.let {
+                    Log.d("clipcraftlogic", "Orchestrator session update received")
                     handleSessionUpdate(it)
                 }
             }
         }
+        
+        Log.d("clipcraftlogic", "=== VideoEditorViewModel INIT COMPLETED ===")
     }
     
     /**
@@ -125,6 +139,17 @@ class VideoEditorViewModel @Inject constructor(
                 Log.d(TAG, "Initializing editor with ${editPlan.finalEdit.size} segments")
                 Log.d("videoeditorclipcraft", "VideoEditorViewModel.initializeWithEditPlan called with ${editPlan.finalEdit.size} segments")
                 Log.d("videoeditorclipcraft", "currentVideoPath: $currentVideoPath")
+                Log.d("clipcraftlogic", "=== initializeWithEditPlan ===")
+                
+                // Check if session has changed
+                val currentSession = videoStateManager.currentState.value?.sessionId
+                Log.d("clipcraftlogic", "Current session: $currentSession, Previous session: $_currentSessionId")
+                
+                if (_currentSessionId != null && _currentSessionId != currentSession) {
+                    Log.d("clipcraftlogic", "Session changed! Clearing all editor state")
+                    clearAllState()
+                }
+                _currentSessionId = currentSession
                 
                 // Если есть currentVideoPath, это AI-отредактированное видео
                 if (currentVideoPath != null) {
@@ -144,20 +169,35 @@ class VideoEditorViewModel @Inject constructor(
                         
                         if (currentVideoUris != newVideoUris) {
                             Log.d(TAG, "Different videos selected, clearing old segments")
+                            Log.d("clipcraftlogic", "Manual mode: Different videos detected, clearing state")
                             clearAllState()
                         } else {
                             Log.d(TAG, "Same videos selected, keeping existing segments")
                             return@launch
                         }
                     } else if (!isManualMode) {
-                        Log.d(TAG, "Editor already initialized with ${_timelineState.value.segments.size} segments, skipping re-initialization")
-                        Log.d("videoeditorclipcraft", "Segments already loaded: ${_timelineState.value.segments.size}")
-                        // Обновляем состояние редактора чтобы UI мог видеть сегменты
-                        _editorState.value = _editorState.value.copy(
-                            originalPlan = editPlan,
-                            timelineState = _timelineState.value
-                        )
-                        return@launch
+                        // For AI mode, ALWAYS check if the segments match the edit plan
+                        val currentSegmentNames = _timelineState.value.segments.map { it.sourceFileName }.toSet()
+                        val planSegmentNames = editPlan.finalEdit.map { it.sourceVideo.removeSuffix(".mp4") }.toSet()
+                        
+                        Log.d("clipcraftlogic", "AI mode segment check:")
+                        Log.d("clipcraftlogic", "Current segments: $currentSegmentNames")
+                        Log.d("clipcraftlogic", "Plan segments: $planSegmentNames")
+                        
+                        if (currentSegmentNames != planSegmentNames) {
+                            Log.d("clipcraftlogic", "Segments don't match edit plan! Clearing and reinitializing")
+                            clearAllState()
+                            // Continue with initialization
+                        } else {
+                            Log.d(TAG, "Editor already initialized with ${_timelineState.value.segments.size} segments, skipping re-initialization")
+                            Log.d("videoeditorclipcraft", "Segments already loaded: ${_timelineState.value.segments.size}")
+                            // Обновляем состояние редактора чтобы UI мог видеть сегменты
+                            _editorState.value = _editorState.value.copy(
+                                originalPlan = editPlan,
+                                timelineState = _timelineState.value
+                            )
+                            return@launch
+                        }
                     }
                 }
                 
@@ -938,14 +978,24 @@ class VideoEditorViewModel @Inject constructor(
      */
     fun startBackgroundRendering(onComplete: (String) -> Unit, onError: (Exception) -> Unit) {
         Log.d(TAG, "Starting background rendering")
+        Log.d("clipcraftlogic", "=== VideoEditorViewModel.startBackgroundRendering ===")
+        Log.d("clipcraftlogic", "Current session: ${videoStateManager.currentState.value?.sessionId}")
+        Log.d("clipcraftlogic", "Current state: ${videoStateManager.currentState.value?.javaClass?.simpleName}")
+        Log.d("clipcraftlogic", "Segments to render: ${_timelineState.value.segments.size}")
         
         // Cancel any existing rendering job
         activeRenderingJob?.cancel()
         
         val segments = _timelineState.value.segments
         if (segments.isEmpty()) {
+            Log.e("clipcraftlogic", "ERROR: No segments to render")
             onError(IllegalStateException("No segments to render"))
             return
+        }
+        
+        Log.d("clipcraftlogic", "Segments details:")
+        segments.forEachIndexed { index, segment ->
+            Log.d("clipcraftlogic", "  Segment $index: ${segment.sourceFileName}, ${segment.inPoint}-${segment.outPoint}s")
         }
         
         // Check if no changes were made
@@ -963,8 +1013,10 @@ class VideoEditorViewModel @Inject constructor(
         activeRenderingJob = GlobalScope.launch {
             try {
                 Log.d(TAG, "Background render started for ${segments.size} segments")
+                Log.d("clipcraftlogic", "Background render started")
                 
                 // Render video with progress tracking
+                Log.d("clipcraftlogic", "Calling videoRenderingService.renderSegments")
                 val renderedPath = videoRenderingService.renderSegments(
                     segments = segments,
                     onProgress = { progress ->
@@ -976,6 +1028,10 @@ class VideoEditorViewModel @Inject constructor(
                         )
                     }
                 )
+                
+                Log.d("clipcraftlogic", "Rendering completed, path: $renderedPath")
+                val renderedFile = File(renderedPath)
+                Log.d("clipcraftlogic", "Rendered file exists: ${renderedFile.exists()}, size: ${renderedFile.length()}")
                 
                 // Transition to final state
                 videoStateManager.transitionToFinalState(renderedPath, segments)
@@ -999,18 +1055,22 @@ class VideoEditorViewModel @Inject constructor(
                 
                 // Complete background rendering
                 backgroundRenderingService.completeRendering(renderedPath)
+                Log.d("clipcraftlogic", "Background rendering service marked complete")
                 
                 Log.d(TAG, "Background render completed: $renderedPath")
+                Log.d("clipcraftlogic", "=== startBackgroundRendering COMPLETED ===")
                 withContext(Dispatchers.Main) {
                     onComplete(renderedPath)
                 }
             } catch (e: CancellationException) {
                 Log.d(TAG, "Background render cancelled")
+                Log.d("clipcraftlogic", "Rendering cancelled")
                 _editorState.update { it.copy(isSaving = false) }
                 backgroundRenderingService.reset()
                 throw e
             } catch (e: Exception) {
                 Log.e(TAG, "Background render failed", e)
+                Log.e("clipcraftlogic", "ERROR: Background rendering failed: ${e.message}")
                 _editorState.update { it.copy(isSaving = false) }
                 backgroundRenderingService.failRendering(e)
                 withContext(Dispatchers.Main) {
@@ -1558,8 +1618,12 @@ class VideoEditorViewModel @Inject constructor(
      */
     fun clearAllState() {
         Log.d(TAG, "Clearing all editor state")
+        Log.d("clipcraftlogic", "=== VideoEditorViewModel.clearAllState ===")
+        Log.d("clipcraftlogic", "Current segments before clear: ${_timelineState.value.segments.size}")
+        Log.d("clipcraftlogic", "Current video path: ${_editorState.value.currentVideoPath}")
         
         // Очищаем временные файлы
+        Log.d("clipcraftlogic", "Clearing temporary files")
         videoEditingService.clearTempFiles()
         
         // Очищаем состояния
@@ -1567,11 +1631,13 @@ class VideoEditorViewModel @Inject constructor(
         _editorState.value = VideoEditorState()
         _editHistory.clear()
         _historyIndex = -1
+        Log.d("clipcraftlogic", "Timeline and editor states cleared")
         
         // Очищаем оригинальные данные
         _originalPlan = null
         _originalVideoAnalyses = null
         _originalSelectedVideos = emptyList()
+        Log.d("clipcraftlogic", "Original data cleared")
         
         // Очищаем saved state
         savedStateHandle.remove<String>(KEY_TIMELINE_SEGMENTS)
@@ -1579,8 +1645,10 @@ class VideoEditorViewModel @Inject constructor(
         savedStateHandle.remove<String>(KEY_ORIGINAL_ANALYSES)
         savedStateHandle.remove<String>(KEY_EDIT_HISTORY)
         savedStateHandle.remove<Int>(KEY_HISTORY_INDEX)
+        Log.d("clipcraftlogic", "Saved state cleared")
         
         Log.d(TAG, "All editor state cleared")
+        Log.d("clipcraftlogic", "=== clearAllState COMPLETED ===")
     }
     
     /**

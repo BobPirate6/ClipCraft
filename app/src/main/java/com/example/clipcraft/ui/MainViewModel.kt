@@ -28,7 +28,7 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
-import java.io.File
+
 import java.util.UUID
 import javax.inject.Inject
 import android.app.Application
@@ -40,6 +40,7 @@ import com.example.clipcraft.domain.model.AIEditResult
 import com.example.clipcraft.domain.model.VideoStateManager
 import com.example.clipcraft.domain.model.VideoEditState
 import com.example.clipcraft.services.BackgroundRenderingService
+import java.io.File
 
 @HiltViewModel
 class MainViewModel @Inject constructor(
@@ -207,11 +208,16 @@ class MainViewModel @Inject constructor(
             backgroundRenderingState.collect { renderState ->
                 if (renderState.resultPath != null && !renderState.isRendering) {
                     Log.d(TAG, "Background render completed: ${renderState.resultPath}")
-                    // Update current video with rendered result
-                    val result = backgroundRenderingService.consumeResult()
-                    result?.let { path ->
-                        updateVideoAfterBackgroundRender(path)
-                    }
+                    Log.d("clipcraftlogic", "Background render detected in MainViewModel: ${renderState.resultPath}")
+                    
+                    // Update current video with rendered result BEFORE consuming
+                    updateVideoAfterBackgroundRender(renderState.resultPath)
+                    
+                    // Delay to ensure UI updates
+                    delay(100)
+                    
+                    // Now consume the result to clear it from service
+                    backgroundRenderingService.consumeResult()
                 }
             }
         }
@@ -287,8 +293,14 @@ class MainViewModel @Inject constructor(
     // --- Video Processing ---
     fun processVideos() {
         Log.d(TAG, "processVideos called")
+        Log.d("clipcraftlogic", "=== PROCESS VIDEOS STARTED ===")
+        Log.d("clipcraftlogic", "Selected videos: ${_selectedVideos.value.size}")
+        Log.d("clipcraftlogic", "Command: ${_userCommand.value}")
+        Log.d("clipcraftlogic", "Current session before processing: ${videoStateManager.currentState.value?.sessionId}")
+        
         if (_selectedVideos.value.isEmpty() || _userCommand.value.isBlank()) {
             Log.e(TAG, "processVideos: Missing videos or command")
+            Log.e("clipcraftlogic", "ERROR: Missing videos or command")
             _processingState.value = ProcessingState.Error("Выберите видео и введите команду.")
             return
         }
@@ -297,32 +309,46 @@ class MainViewModel @Inject constructor(
         val user = currentUser.value
         if (user == null || user.creditsRemaining <= 0) {
             Log.e(TAG, "processVideos: No credits remaining")
+            Log.e("clipcraftlogic", "ERROR: No credits remaining")
             _processingState.value = ProcessingState.Error("У вас закончились кредиты.")
             return
         }
         
         // Инициализируем новую сессию с выбранными видео
+        Log.d("clipcraftlogic", "Starting new session with ${_selectedVideos.value.size} videos")
         videoStateManager.startNewSession(_selectedVideos.value.map { it.uri })
+        Log.d("clipcraftlogic", "New session created: ${videoStateManager.currentState.value?.sessionId}")
         
         val videoUris = _selectedVideos.value.map { it.uri.toString() }.toTypedArray()
         Log.d(TAG, "Starting work with ${videoUris.size} videos and command: ${_userCommand.value}")
+        Log.d("clipcraftlogic", "Starting work processing")
         val workId = processingRepository.processNewVideo(videoUris, _userCommand.value)
+        Log.d("clipcraftlogic", "Work ID: $workId")
         observeWork(workId)
+        Log.d("clipcraftlogic", "=== PROCESS VIDEOS INITIATED ===")
     }
     
     fun startManualEdit() {
         Log.d(TAG, "startManualEdit called")
+        Log.d("clipcraftlogic", "=== START MANUAL EDIT ===")
+        Log.d("clipcraftlogic", "Selected videos: ${_selectedVideos.value.size}")
+        Log.d("clipcraftlogic", "Current session before manual edit: ${videoStateManager.currentState.value?.sessionId}")
+        
         if (_selectedVideos.value.isEmpty()) {
             Log.e(TAG, "startManualEdit: No videos selected")
+            Log.e("clipcraftlogic", "ERROR: No videos selected for manual edit")
             _processingState.value = ProcessingState.Error("Выберите видео для редактирования.")
             return
         }
         
         // Инициализируем новую сессию для ручного редактирования
+        Log.d("clipcraftlogic", "Starting new session for manual editing")
         videoStateManager.startNewSession(_selectedVideos.value.map { it.uri })
+        Log.d("clipcraftlogic", "New session created: ${videoStateManager.currentState.value?.sessionId}")
         
         // Создаем пустой план монтажа для ручного редактирования
         val emptyEditPlan = EditPlan(emptyList())
+        Log.d("clipcraftlogic", "Created empty edit plan for manual editing")
         
         // Устанавливаем состояние успеха с пустым планом для ручного редактирования
         _processingState.value = ProcessingState.Success(
@@ -330,9 +356,11 @@ class MainViewModel @Inject constructor(
             editPlan = emptyEditPlan,
             videoAnalyses = emptyMap()
         )
+        Log.d("clipcraftlogic", "Processing state set to Success with empty plan")
         
         // Переходим в видеоредактор
         navigateTo(Screen.VideoEditor)
+        Log.d("clipcraftlogic", "=== NAVIGATING TO VIDEO EDITOR ===")
     }
 
     fun startEditing(editCommand: String) {
@@ -437,6 +465,9 @@ class MainViewModel @Inject constructor(
     private fun handleSuccessfulWork(outputData: Data) {
         Log.d(TAG, "handleSuccessfulWork called")
         Log.d("videoeditorclipcraft", "handleSuccessfulWork called")
+        Log.d("clipcraftlogic", "=== HANDLE SUCCESSFUL WORK ===")
+        Log.d("clipcraftlogic", "Current session: ${videoStateManager.currentState.value?.sessionId}")
+        Log.d("clipcraftlogic", "Current state: ${videoStateManager.currentState.value?.javaClass?.simpleName}")
 
         // Логируем все ключи в outputData
         outputData.keyValueMap.forEach { (key, value) ->
@@ -486,11 +517,15 @@ class MainViewModel @Inject constructor(
                     
                     // Переходим в состояние Stage1A если это первое AI создание
                     if (_editingState.value.mode == ProcessingMode.NEW) {
+                        Log.d("clipcraftlogic", "Transitioning to AI created state")
+                        Log.d("clipcraftlogic", "Video path: $resultPath")
+                        Log.d("clipcraftlogic", "Edit plan segments: ${editPlan.finalEdit.size}")
                         videoStateManager.transitionToAICreated(
                             videoPath = resultPath,
                             editPlan = editPlan,
                             sourceVideos = _selectedVideos.value.map { it.uri }
                         )
+                        Log.d("clipcraftlogic", "State after transition: ${videoStateManager.currentState.value?.javaClass?.simpleName}")
                     }
                     
                     // Обновляем editingState с новым путем видео, если мы в режиме редактирования
@@ -744,16 +779,29 @@ class MainViewModel @Inject constructor(
     fun createNewVideo() {
         Log.d(TAG, "Creating new video")
         Log.d("videoeditorclipcraft", "createNewVideo called - resetting all states")
+        Log.d("clipcraftlogic", "=== CREATE NEW VIDEO STARTED ===")
+        Log.d("clipcraftlogic", "Current session: ${videoStateManager.currentState.value?.sessionId}")
+        Log.d("clipcraftlogic", "Current state: ${videoStateManager.currentState.value?.javaClass?.simpleName}")
+        Log.d("clipcraftlogic", "Current processing state: ${_processingState.value}")
+        Log.d("clipcraftlogic", "Selected videos count: ${_selectedVideos.value.size}")
         
         // Отмечаем, что состояние VideoEditorViewModel нужно очистить
         videoEditorStateManager.markForClear()
+        Log.d("clipcraftlogic", "VideoEditorStateManager marked for clear")
         
         // Очищаем сессию в VideoStateManager
         videoStateManager.clearSession()
+        Log.d("clipcraftlogic", "VideoStateManager session cleared")
+        
+        // Reset background rendering service
+        backgroundRenderingService.reset()
+        Log.d("clipcraftlogic", "BackgroundRenderingService reset")
         
         // Очищаем все временные файлы
         viewModelScope.launch {
+            Log.d("clipcraftlogic", "Starting temporary file cleanup")
             temporaryFileManager.cleanupAllTemporaryFiles()
+            Log.d("clipcraftlogic", "Temporary file cleanup completed")
         }
         
         // Полный сброс всех состояний
@@ -762,6 +810,9 @@ class MainViewModel @Inject constructor(
         _selectedVideos.value = emptyList()
         _userCommand.value = ""
         _currentScreen.value = Screen.Main
+        
+        Log.d("clipcraftlogic", "All states reset completed")
+        Log.d("clipcraftlogic", "=== CREATE NEW VIDEO COMPLETED ===")
     }
     
     fun updateEditPlanAfterManualEdit(updatedEditPlan: EditPlan) {
@@ -787,47 +838,80 @@ class MainViewModel @Inject constructor(
     
     private fun updateVideoAfterBackgroundRender(renderedPath: String) {
         Log.d(TAG, "Updating video after background render: $renderedPath")
+        Log.d("clipcraftlogic", "=== updateVideoAfterBackgroundRender ===")
+        Log.d("clipcraftlogic", "Rendered path: $renderedPath")
+        Log.d("clipcraftlogic", "File exists: ${File(renderedPath).exists()}")
         
         val currentState = _processingState.value
+        Log.d("clipcraftlogic", "Current processing state: ${currentState.javaClass.simpleName}")
+        
         if (currentState is ProcessingState.Success) {
             // Update video path
             _editingState.value = _editingState.value.copy(
                 currentVideoPath = renderedPath
             )
+            Log.d("clipcraftlogic", "Updated editing state with new video path")
             
             // Update processing state with new path
             _processingState.value = currentState.copy(
                 result = renderedPath
             )
+            Log.d("clipcraftlogic", "Updated processing state with new video path")
             
             Log.d(TAG, "Video updated with background rendered result")
+            Log.d("clipcraftlogic", "=== updateVideoAfterBackgroundRender COMPLETED ===")
+        } else {
+            Log.e("clipcraftlogic", "ERROR: Cannot update video - processing state is not Success")
         }
     }
     
     fun replaceCurrentVideoWithEdited(tempVideoPath: String, updatedEditPlan: EditPlan) {
         Log.d("videoeditorclipcraft", "Replacing current video with edited version, path: $tempVideoPath")
+        Log.d("clipcraftlogic", "=== REPLACE CURRENT VIDEO WITH EDITED ===")
+        Log.d("clipcraftlogic", "Temp video path: $tempVideoPath")
+        Log.d("clipcraftlogic", "Updated edit plan segments: ${updatedEditPlan.finalEdit.size}")
+        Log.d("clipcraftlogic", "Current session: ${videoStateManager.currentState.value?.sessionId}")
         
         // Empty path indicates background rendering in progress
         if (tempVideoPath.isEmpty()) {
             Log.d("videoeditorclipcraft", "Background rendering started, will update when complete")
+            Log.d("clipcraftlogic", "Background rendering started - no path yet")
+            
+            // Keep the current processing state but update the edit plan
+            val currentState = _processingState.value
+            if (currentState is ProcessingState.Success) {
+                _processingState.value = currentState.copy(
+                    editPlan = updatedEditPlan
+                )
+                Log.d("clipcraftlogic", "Updated edit plan in processing state")
+            }
             return
         }
         
         val currentState = _processingState.value
+        Log.d("clipcraftlogic", "Current processing state: ${currentState.javaClass.simpleName}")
+        
         if (currentState is ProcessingState.Success) {
             // НЕ сохраняем в галерею, только обновляем путь к временному файлу
             Log.d("videoeditorclipcraft", "Updating to temp video path: $tempVideoPath")
+            Log.d("clipcraftlogic", "Updating processing state with new video path")
+            
+            // Check if file exists
+            val tempFile = File(tempVideoPath)
+            Log.d("clipcraftlogic", "Temp file exists: ${tempFile.exists()}, size: ${tempFile.length()}")
             
             // Обновляем путь к видео на временный файл
             _editingState.value = _editingState.value.copy(
                 currentVideoPath = tempVideoPath
             )
+            Log.d("clipcraftlogic", "Editing state updated with new path")
             
             // Обновляем состояние с новым планом и временным путем
             _processingState.value = currentState.copy(
                 result = tempVideoPath,
                 editPlan = updatedEditPlan
             )
+            Log.d("clipcraftlogic", "Processing state updated with new path and plan")
             
             // Обновляем историю
             _editHistory.value.firstOrNull()?.let { latestHistory ->
@@ -838,10 +922,14 @@ class MainViewModel @Inject constructor(
                     )
                     historyRepository.updateEditHistory(updatedHistory)
                     _editHistory.value = listOf(updatedHistory) + _editHistory.value.drop(1)
+                    Log.d("clipcraftlogic", "History updated with new path")
                 }
             }
             
             Log.d("videoeditorclipcraft", "Video replaced successfully with temp file")
+            Log.d("clipcraftlogic", "=== VIDEO REPLACEMENT COMPLETED ===")
+        } else {
+            Log.e("clipcraftlogic", "ERROR: Cannot replace video - processing state is not Success")
         }
     }
 

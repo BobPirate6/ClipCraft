@@ -37,6 +37,7 @@ import com.example.clipcraft.ui.components.*
 import com.example.clipcraft.components.ProcessingProgressBar
 import com.example.clipcraft.components.rememberProcessingStep
 import com.example.clipcraft.components.OptimizedEmbeddedVideoPlayer
+import com.example.clipcraft.components.SimpleVideoPlayer
 import com.example.clipcraft.utils.VideoPlayerPool
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.rememberMultiplePermissionsState
@@ -78,14 +79,35 @@ fun NewMainScreen(
     // Tutorial target bounds
     val targetBounds = remember { mutableStateMapOf<TutorialTarget, androidx.compose.ui.unit.IntRect>() }
 
+    // Force video player refresh when returning from editor
+    var videoPlayerRefreshKey by remember { mutableStateOf(0) }
+    
     // Определяем, нужно ли показывать видеоплеер
+    Log.d("clipcraftlogic", "showVideoPlayer check: processingState=${processingState.javaClass.simpleName}, editMode=${editingState.mode}, currentVideoPath=${editingState.currentVideoPath}")
     val showVideoPlayer = when {
         processingState is ProcessingState.Success -> true
         // При редактировании показываем видеоплеер только если процесс НЕ идет
         editingState.mode == ProcessingMode.EDIT && 
             editingState.currentVideoPath != null && 
             processingState !is ProcessingState.Processing -> true
+        // При фоновом рендеринге показываем плеер если есть результат
+        backgroundRenderingState.isRendering && 
+            processingState is ProcessingState.Success -> true
         else -> false
+    }
+    
+    // Refresh video player when processing state changes to success with new video path
+    var lastVideoPath by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(processingState) {
+        val state = processingState
+        if (state is ProcessingState.Success) {
+            val newPath = state.result
+            if (newPath != lastVideoPath && newPath.isNotEmpty()) {
+                Log.d("clipcraftlogic", "Processing success detected with new video path, refreshing video player")
+                lastVideoPath = newPath
+                videoPlayerRefreshKey++
+            }
+        }
     }
     
     // При успешном редактировании голосом открываем редактор
@@ -102,6 +124,11 @@ fun NewMainScreen(
     // Логируем для отладки
     LaunchedEffect(showVideoPlayer, processingState) {
         Log.d("NewMainScreen", "showVideoPlayer: $showVideoPlayer, processingState: $processingState")
+        Log.d("clipcraftlogic", "showVideoPlayer: $showVideoPlayer, processingState: ${processingState.javaClass.simpleName}")
+        val state = processingState
+        if (state is ProcessingState.Success) {
+            Log.d("clipcraftlogic", "Success result path: ${state.result}")
+        }
     }
 
     // Permissions
@@ -333,14 +360,24 @@ fun NewMainScreen(
                     .weight(1f)
                     .fillMaxWidth()
             ) {
+                val animatedTargetState = when {
+                    showVideoPlayer -> "video"
+                    processingState is ProcessingState.Processing -> "processing"
+                    processingState is ProcessingState.Success -> "success"
+                    processingState is ProcessingState.Error -> "error"
+                    else -> "idle"
+                }
+                Log.d("clipcraftlogic", "AnimatedContent targetState: $animatedTargetState, showVideoPlayer: $showVideoPlayer")
+                
                 AnimatedContent(
-                    targetState = if (showVideoPlayer) "video" else processingState,
+                    targetState = animatedTargetState,
                     transitionSpec = {
                         fadeIn(animationSpec = tween(300)) togetherWith
                                 fadeOut(animationSpec = tween(300))
                     }
                 ) { targetState ->
                     Log.d("NewMainScreen", "Target state changed to: $targetState")
+                    Log.d("clipcraftlogic", "AnimatedContent rendering state: $targetState")
                     when (targetState) {
                         "video" -> {
                             Box(
@@ -350,27 +387,54 @@ fun NewMainScreen(
                                 val videoUri = when (val state = processingState) {
                                     is ProcessingState.Success -> {
                                         Log.d("NewMainScreen", "Using video from ProcessingState.Success: ${state.result}")
+                                        Log.d("clipcraftlogic", "Final screen video path: ${state.result}")
                                         state.result
                                     }
                                     else -> {
                                         val path = editingState.currentVideoPath ?: ""
                                         Log.d("NewMainScreen", "Using video from editingState: $path")
+                                        Log.d("clipcraftlogic", "Final screen video path (from editing): $path")
                                         path
                                     }
                                 }
                                 Log.d("NewMainScreen", "Showing video player for: $videoUri")
+                                
+                                // Check if file exists
+                                val videoFile = if (videoUri.startsWith("content://")) {
+                                    null // Can't check content URI easily
+                                } else {
+                                    java.io.File(videoUri)
+                                }
+                                if (videoFile != null) {
+                                    Log.d("clipcraftlogic", "Video file exists: ${videoFile.exists()}, size: ${videoFile.length()}")
+                                }
+                                
                                 val uri = if (videoUri.startsWith("content://")) {
                                     Uri.parse(videoUri)
                                 } else {
-                                    videoUri.toUri()
+                                    Uri.fromFile(java.io.File(videoUri))
                                 }
-                                OptimizedEmbeddedVideoPlayer(
-                                    videoUri = uri,
-                                    modifier = Modifier.fillMaxSize(),
-                                    playerKey = "final_result"
-                                )
+                                Log.d("clipcraftlogic", "Created URI: $uri from path: $videoUri")
+                                
+                                // Use a unique key based on the video path and refresh counter to force recreation
+                                val playerKey = "final_result_${videoUri.hashCode()}_$videoPlayerRefreshKey"
+                                Log.d("clipcraftlogic", "Using player key: $playerKey")
+                                
+                                // Use stable key based only on video URI, not refresh counter
+                                val stablePlayerKey = "final_result_${videoUri.hashCode()}"
+                                Log.d("clipcraftlogic", "Using stable player key: $stablePlayerKey")
+                                
+                                // Force complete re-composition with key
+                                key(stablePlayerKey) {
+                                    // Use SimpleVideoPlayer for more reliable playback on final screen
+                                    SimpleVideoPlayer(
+                                        videoUri = uri,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                }
                                 
                                 // Show rendering progress overlay if background rendering is active
+                                Log.d("clipcraftlogic", "Background rendering state: isRendering=${backgroundRenderingState.isRendering}, progress=${backgroundRenderingState.progress}")
                                 if (backgroundRenderingState.isRendering) {
                                     Box(
                                         modifier = Modifier
@@ -418,7 +482,7 @@ fun NewMainScreen(
                                 }
                             }
                         }
-                        is ProcessingState.Processing -> {
+                        "processing" -> {
                             // Speech bubbles
                             Log.d("NewMainScreen", "Showing processing state")
                             Box(

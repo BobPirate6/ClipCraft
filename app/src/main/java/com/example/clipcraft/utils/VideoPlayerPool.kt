@@ -92,6 +92,26 @@ object VideoPlayerPool {
     /**
      * Release a specific player by key.
      */
+    /**
+     * Force update player with new URI
+     */
+    fun updatePlayer(key: String, uri: Uri): ExoPlayer? {
+        Log.d(TAG, "Updating player for key: $key with new URI: $uri")
+        
+        return players[key]?.apply {
+            try {
+                stop()
+                clearMediaItems()
+                setMediaItem(MediaItem.fromUri(uri))
+                prepare()
+                seekTo(0)
+                Log.d(TAG, "Successfully updated player for key: $key")
+            } catch (e: Exception) {
+                Log.e(TAG, "Error updating player for key: $key", e)
+            }
+        }
+    }
+    
     fun releasePlayer(key: String) {
         Log.d(TAG, "Releasing player for key: $key")
         

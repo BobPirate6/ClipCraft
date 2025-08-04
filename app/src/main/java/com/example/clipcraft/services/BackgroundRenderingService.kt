@@ -4,6 +4,7 @@ import android.util.Log
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -49,12 +50,17 @@ class BackgroundRenderingService @Inject constructor() {
     
     fun completeRendering(resultPath: String) {
         Log.d(TAG, "Rendering completed: $resultPath")
+        Log.d("clipcraftlogic", "=== BackgroundRenderingService.completeRendering ===")
+        Log.d("clipcraftlogic", "Result path: $resultPath")
+        Log.d("clipcraftlogic", "File exists: ${File(resultPath).exists()}")
+        Log.d("clipcraftlogic", "File size: ${File(resultPath).length()}")
         _renderingState.value = _renderingState.value.copy(
             isRendering = false,
             progress = 1f,
             resultPath = resultPath,
             error = null
         )
+        Log.d("clipcraftlogic", "Rendering state updated with result path")
     }
     
     fun failRendering(error: Exception) {

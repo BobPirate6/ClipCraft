@@ -80,6 +80,12 @@ class VideoRenderingService @Inject constructor(
         
         Log.d(TAG, "Starting render of ${segments.size} segments to ${outputFile.absolutePath}")
         Log.d(TAG_RENDER, "=== RENDER START === segments: ${segments.size}, output: $fileName")
+        Log.d("clipcraftlogic", "=== VideoRenderingService.renderSegments ===")
+        Log.d("clipcraftlogic", "Output file: ${outputFile.absolutePath}")
+        Log.d("clipcraftlogic", "Segments to render:")
+        segments.forEachIndexed { index, segment ->
+            Log.d("clipcraftlogic", "  Segment $index: ${segment.sourceFileName}, ${segment.inPoint}-${segment.outPoint}s, uri: ${segment.sourceVideoUri}")
+        }
         
         try {
             // If only one segment and it's the full video, just copy it
@@ -149,6 +155,8 @@ class VideoRenderingService @Inject constructor(
         outputFile: File,
         onProgress: ((Float) -> Unit)?
     ): String = withContext(Dispatchers.Main) {
+        Log.d("clipcraftlogic", "=== renderWithTransformer started ===")
+        Log.d("clipcraftlogic", "Output: ${outputFile.absolutePath}")
         suspendCancellableCoroutine { continuation ->
         
         val transformer = Transformer.Builder(context)
@@ -161,6 +169,9 @@ class VideoRenderingService @Inject constructor(
                 ) {
                     Log.d(TAG, "Rendering completed successfully")
                     Log.d(TAG_RENDER, "=== RENDER COMPLETE === transformer: ${outputFile.name}, duration: ${exportResult.durationMs}ms")
+                    Log.d("clipcraftlogic", "Transformer rendering completed")
+                    Log.d("clipcraftlogic", "Output file: ${outputFile.absolutePath}")
+                    Log.d("clipcraftlogic", "File exists: ${outputFile.exists()}, size: ${outputFile.length()}")
                     continuation.resume(outputFile.absolutePath)
                 }
                 
@@ -170,6 +181,7 @@ class VideoRenderingService @Inject constructor(
                     exportException: ExportException
                 ) {
                     Log.e(TAG, "Rendering failed", exportException)
+                    Log.e("clipcraftlogic", "ERROR: Transformer rendering failed: ${exportException.message}")
                     continuation.resumeWithException(exportException)
                 }
             })

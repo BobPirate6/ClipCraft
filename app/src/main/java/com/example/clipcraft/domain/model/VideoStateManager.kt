@@ -124,12 +124,21 @@ class VideoStateManager @Inject constructor(
      */
     fun startNewSession(selectedVideos: List<Uri>) {
         Log.d(TAG, "Starting new session with ${selectedVideos.size} videos")
+        Log.d("clipcraftlogic", "=== VideoStateManager.startNewSession ===")
+        Log.d("clipcraftlogic", "Previous session ID: $currentSessionId")
+        Log.d("clipcraftlogic", "Previous state: ${_currentState.value?.javaClass?.simpleName}")
+        Log.d("clipcraftlogic", "Videos to add: ${selectedVideos.joinToString { it.lastPathSegment ?: "unknown" }}")
         
         // Clean up previous session if exists
-        currentSessionId?.let { cleanupSession(it) }
+        currentSessionId?.let { 
+            Log.d("clipcraftlogic", "Cleaning up previous session: $it")
+            cleanupSession(it) 
+        }
         
         // Create new session
         currentSessionId = UUID.randomUUID().toString()
+        Log.d("clipcraftlogic", "New session ID created: $currentSessionId")
+        
         val initialState = VideoEditState.Initial(
             sessionId = currentSessionId!!,
             selectedVideos = selectedVideos
@@ -138,7 +147,10 @@ class VideoStateManager @Inject constructor(
         _currentState.value = initialState
         _stateHistory.value = listOf(initialState)
         
+        Log.d("clipcraftlogic", "Initial state created and set")
         saveSession()
+        Log.d("clipcraftlogic", "Session saved to preferences")
+        Log.d("clipcraftlogic", "=== startNewSession completed ===")
     }
     
     /**
@@ -288,12 +300,22 @@ class VideoStateManager @Inject constructor(
      * Clear current session
      */
     fun clearSession() {
-        currentSessionId?.let { cleanupSession(it) }
+        Log.d("clipcraftlogic", "=== VideoStateManager.clearSession ===")
+        Log.d("clipcraftlogic", "Current session to clear: $currentSessionId")
+        Log.d("clipcraftlogic", "Current state before clear: ${_currentState.value?.javaClass?.simpleName}")
+        
+        currentSessionId?.let { 
+            Log.d("clipcraftlogic", "Cleaning up session: $it")
+            cleanupSession(it) 
+        }
+        
         _currentState.value = null
         _stateHistory.value = emptyList()
         currentSessionId = null
         
         prefs.edit().clear().apply()
+        Log.d("clipcraftlogic", "Session cleared, preferences cleared")
+        Log.d("clipcraftlogic", "=== clearSession completed ===")
     }
     
     private fun updateState(newState: VideoEditState) {
