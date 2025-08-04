@@ -68,6 +68,7 @@ fun NewMainScreen(
     val processingMessages by viewModel.processingChatMessages.collectAsStateWithLifecycle()
     val editingState by viewModel.editingState.collectAsStateWithLifecycle()
     val tutorialState by viewModel.tutorialState.collectAsStateWithLifecycle()
+    val backgroundRenderingState by viewModel.backgroundRenderingState.collectAsStateWithLifecycle()
 
     // Local states
     var showMaxVideosDialog by remember { mutableStateOf(false) }
@@ -342,20 +343,22 @@ fun NewMainScreen(
                     Log.d("NewMainScreen", "Target state changed to: $targetState")
                     when (targetState) {
                         "video" -> {
-                            // Видеоплеер
-                            val videoUri = when (val state = processingState) {
-                                is ProcessingState.Success -> {
-                                    Log.d("NewMainScreen", "Using video from ProcessingState.Success: ${state.result}")
-                                    state.result
+                            Box(
+                                modifier = Modifier.fillMaxSize()
+                            ) {
+                                // Видеоплеер
+                                val videoUri = when (val state = processingState) {
+                                    is ProcessingState.Success -> {
+                                        Log.d("NewMainScreen", "Using video from ProcessingState.Success: ${state.result}")
+                                        state.result
+                                    }
+                                    else -> {
+                                        val path = editingState.currentVideoPath ?: ""
+                                        Log.d("NewMainScreen", "Using video from editingState: $path")
+                                        path
+                                    }
                                 }
-                                else -> {
-                                    val path = editingState.currentVideoPath ?: ""
-                                    Log.d("NewMainScreen", "Using video from editingState: $path")
-                                    path
-                                }
-                            }
-                            Log.d("NewMainScreen", "Showing video player for: $videoUri")
-                            Box(modifier = Modifier.fillMaxSize()) {
+                                Log.d("NewMainScreen", "Showing video player for: $videoUri")
                                 val uri = if (videoUri.startsWith("content://")) {
                                     Uri.parse(videoUri)
                                 } else {
@@ -366,6 +369,53 @@ fun NewMainScreen(
                                     modifier = Modifier.fillMaxSize(),
                                     playerKey = "final_result"
                                 )
+                                
+                                // Show rendering progress overlay if background rendering is active
+                                if (backgroundRenderingState.isRendering) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .background(Color.Black.copy(alpha = 0.5f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Card(
+                                            modifier = Modifier.padding(16.dp),
+                                            colors = CardDefaults.cardColors(
+                                                containerColor = MaterialTheme.colorScheme.surface
+                                            )
+                                        ) {
+                                            Column(
+                                                modifier = Modifier.padding(24.dp),
+                                                horizontalAlignment = Alignment.CenterHorizontally
+                                            ) {
+                                                CircularProgressIndicator(
+                                                    modifier = Modifier.size(48.dp)
+                                                )
+                                                Spacer(modifier = Modifier.height(16.dp))
+                                                Text(
+                                                    text = stringResource(R.string.rendering_video),
+                                                    style = MaterialTheme.typography.bodyLarge
+                                                )
+                                                Spacer(modifier = Modifier.height(8.dp))
+                                                Text(
+                                                    text = "${(backgroundRenderingState.progress * 100).toInt()}%",
+                                                    style = MaterialTheme.typography.bodyMedium
+                                                )
+                                                if (backgroundRenderingState.totalSegments > 0) {
+                                                    Text(
+                                                        text = stringResource(
+                                                            R.string.rendering_segment_format,
+                                                            backgroundRenderingState.currentSegment,
+                                                            backgroundRenderingState.totalSegments
+                                                        ),
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                         is ProcessingState.Processing -> {

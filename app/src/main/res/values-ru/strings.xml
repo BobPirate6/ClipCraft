@@ -24,6 +24,8 @@
     <string name="nav_video_editor">Видеоредактор</string>
     <string name="nav_gallery">Галерея</string>
     <string name="nav_help">Помощь</string>
+    <string name="rendering_video">Рендеринг видео…</string>
+    <string name="rendering_segment_format">Сегмент %1$d из %2$d</string>
     
     <!-- Video Editor Screen -->
     <string name="editor_voice_button">Редактировать с AI</string>

@@ -9,6 +9,7 @@ import com.example.clipcraft.domain.model.VideoStateTransitionManager
 import com.example.clipcraft.domain.model.VideoEditorOrchestrator
 import com.example.clipcraft.domain.model.VideoStateManager
 import com.example.clipcraft.services.VideoRenderingService
+import com.example.clipcraft.services.BackgroundRenderingService
 import com.google.gson.Gson
 import dagger.Module
 import dagger.Provides
@@ -80,5 +81,11 @@ object ApplicationModule {
         temporaryFileManager: TemporaryFileManager
     ): VideoRenderingService {
         return VideoRenderingService(context, temporaryFileManager)
+    }
+    
+    @Provides
+    @Singleton
+    fun provideBackgroundRenderingService(): BackgroundRenderingService {
+        return BackgroundRenderingService()
     }
 }

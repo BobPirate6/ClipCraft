@@ -37,6 +37,8 @@ The application follows **Clean Architecture** principles with clear separation 
 - **DefaultLoadControl**: Custom buffer configuration (50-200s buffer, 2.5-5s thresholds) for continuous playback
 - **MediaMetadataRetriever**: Video metadata extraction
 - **Custom VideoAnalyzerService**: Scene detection and analysis
+- **Background Video Rendering**: VideoRenderingService with background processing capabilities for non-blocking video export
+- **Render Progress Tracking**: Real-time progress monitoring with StateFlow updates during background operations
 
 ### Backend Services
 1. **ClipCraft API** (`clipcraft-holy-water-8099.fly.dev`)
@@ -109,6 +111,7 @@ Main application module containing:
 - **VideoAnalyzerService**: Local video scene analysis
 - **TranscriptionService**: Audio-to-text conversion
 - **VideoEditorService**: Local video editing engine
+- **VideoRenderingService**: Background video rendering with progress tracking and crash prevention
 - **AuthService**: Authentication management with reactive credit updates
 
 #### `utils/`
@@ -587,6 +590,129 @@ Centralized singleton class for tracking and managing temporary files:
 - **Cleanup Reliability**: Multi-level cleanup ensures resource release
 - **Playback Performance**: Seamless segment transitions with 50-200s buffering and optimized load control
 - **Smooth Transitions**: Eliminated segment boundary pauses through ConcatenatingMediaSource2 and lazy preparation
+
+## Background Video Rendering System [NEW - 2025-08-04]
+
+### Overview
+ClipCraft implements a background video rendering system that allows users to exit the video editor while video rendering continues in the background. This enhances user experience by preventing app blocking during long render operations.
+
+**Implementation Branch**: feature/background-render-progress  
+**Status**: In Development
+
+### Core Architecture
+
+#### Background Processing Design
+The system uses a service-based architecture with coroutine-powered background processing:
+
+```kotlin
+@Singleton
+class VideoRenderingService @Inject constructor(
+    @ApplicationContext private val context: Context,
+    private val temporaryFileManager: TemporaryFileManager
+) {
+    data class RenderingProgress(
+        val progress: Float,           // 0..1 overall progress
+        val currentSegment: Int,       // Current segment being processed
+        val totalSegments: Int         // Total segments to process
+    )
+    
+    private val _renderingProgress = MutableStateFlow(RenderingProgress(0f, 0, 0))
+    val renderingProgress: StateFlow<RenderingProgress> = _renderingProgress
+}
+```
+
+#### Key Features
+
+**1. Non-Blocking Rendering**
+- Video rendering runs in background coroutines using `Dispatchers.IO`
+- Users can exit video editor and return to main screen during rendering
+- App remains responsive and functional during long render operations
+
+**2. Real-Time Progress Tracking**
+- StateFlow-based progress updates: `RenderingProgress(progress, currentSegment, totalSegments)`
+- Progress indicator visible on main screen showing current segment and overall completion
+- Live updates during background rendering operations
+
+**3. Crash Prevention During Exit**
+- Enhanced lifecycle management prevents crashes when exiting editor during active rendering
+- Proper resource cleanup and coroutine cancellation handling
+- Safe navigation between screens while background operations continue
+
+**4. Dedicated Render Logging**
+- Separate logging tag: `"VideoRenderingService"` for render-specific debugging
+- Enhanced logging for background operations and progress tracking
+- Clear separation from general video editing logs
+
+### State Management Integration
+
+#### Background Render State
+```kotlin
+// Enhanced VideoEditorViewModel with background render support
+class VideoEditorViewModel {
+    // Rendering progress from service
+    val renderingProgress: StateFlow<VideoRenderingService.RenderingProgress> = 
+        videoRenderingService.renderingProgress
+    
+    // Background render state tracking
+    private val _isRenderingInBackground = MutableStateFlow(false)
+    val isRenderingInBackground: StateFlow<Boolean> = _isRenderingInBackground
+}
+```
+
+#### Main Screen Integration
+- Main screen displays render progress when background operations are active
+- Progress indicator shows current segment processing and overall completion percentage
+- User can monitor render status without staying in video editor
+
+### Technical Implementation
+
+#### Service Architecture
+- **VideoRenderingService**: Enhanced with background processing capabilities
+- **Media3 Transformer**: Continues processing in background threads
+- **Progress Callbacks**: Real-time updates via StateFlow emissions
+- **Lifecycle Safety**: Proper handling of app lifecycle changes during rendering
+
+#### Error Handling
+- Graceful handling of app backgrounding during render operations
+- Recovery mechanisms for interrupted render processes
+- User notification system for completed background renders
+
+#### Resource Management
+- Efficient memory usage during background operations
+- Automatic cleanup of temporary files after render completion
+- Proper disposal of resources when operations are cancelled
+
+### User Experience Flow
+
+1. **Start Render**: User clicks Apply in video editor, rendering begins
+2. **Background Transition**: User can exit editor, rendering continues in background
+3. **Progress Tracking**: Main screen shows render progress with current segment info
+4. **Completion Notification**: User receives notification when background render completes
+5. **Result Integration**: Rendered video automatically appears in main screen player
+
+### Benefits
+
+**For Users:**
+- No longer blocked by long video rendering operations
+- Can continue using app while videos process in background
+- Clear visual feedback on render progress and completion
+- Improved overall app responsiveness
+
+**For Stability:**
+- Prevents crashes during editor navigation while rendering
+- Better resource management during background operations
+- Enhanced error recovery for interrupted processes
+
+**For Development:**
+- Cleaner separation of concerns between UI and background processing
+- Better debugging through dedicated render logging
+- Improved testability of render operations
+
+### Future Enhancements
+- Multiple concurrent background renders
+- Background render queue management
+- Render priority system for different video types
+- Enhanced notification system for completed renders
 
 ## Video State Management System
 

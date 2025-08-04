@@ -39,6 +39,7 @@ import com.example.clipcraft.domain.model.VideoEditorOrchestrator
 import com.example.clipcraft.domain.model.AIEditResult
 import com.example.clipcraft.domain.model.VideoStateManager
 import com.example.clipcraft.domain.model.VideoEditState
+import com.example.clipcraft.services.BackgroundRenderingService
 
 @HiltViewModel
 class MainViewModel @Inject constructor(
@@ -53,7 +54,8 @@ class MainViewModel @Inject constructor(
     private val temporaryFileManager: TemporaryFileManager,
     private val videoEditorUpdateManager: VideoEditorUpdateManager,
     private val videoEditorOrchestrator: VideoEditorOrchestrator,
-    private val videoStateManager: VideoStateManager
+    private val videoStateManager: VideoStateManager,
+    private val backgroundRenderingService: BackgroundRenderingService
 ) : ViewModel() {
 
     companion object {
@@ -96,6 +98,9 @@ class MainViewModel @Inject constructor(
 
     private val _tutorialState = MutableStateFlow(TutorialState())
     val tutorialState: StateFlow<TutorialState> = _tutorialState.asStateFlow()
+    
+    // Background rendering state
+    val backgroundRenderingState = backgroundRenderingService.renderingState
     
     private val _showFeedbackDialog = MutableStateFlow(false)
     val showFeedbackDialog: StateFlow<Boolean> = _showFeedbackDialog.asStateFlow()
@@ -193,6 +198,20 @@ class MainViewModel @Inject constructor(
                         _currentScreen.value = Screen.Intro
                     }
                     else -> {}
+                }
+            }
+        }
+        
+        // Monitor background rendering completion
+        viewModelScope.launch {
+            backgroundRenderingState.collect { renderState ->
+                if (renderState.resultPath != null && !renderState.isRendering) {
+                    Log.d(TAG, "Background render completed: ${renderState.resultPath}")
+                    // Update current video with rendered result
+                    val result = backgroundRenderingService.consumeResult()
+                    result?.let { path ->
+                        updateVideoAfterBackgroundRender(path)
+                    }
                 }
             }
         }
@@ -766,8 +785,34 @@ class MainViewModel @Inject constructor(
         }
     }
     
+    private fun updateVideoAfterBackgroundRender(renderedPath: String) {
+        Log.d(TAG, "Updating video after background render: $renderedPath")
+        
+        val currentState = _processingState.value
+        if (currentState is ProcessingState.Success) {
+            // Update video path
+            _editingState.value = _editingState.value.copy(
+                currentVideoPath = renderedPath
+            )
+            
+            // Update processing state with new path
+            _processingState.value = currentState.copy(
+                result = renderedPath
+            )
+            
+            Log.d(TAG, "Video updated with background rendered result")
+        }
+    }
+    
     fun replaceCurrentVideoWithEdited(tempVideoPath: String, updatedEditPlan: EditPlan) {
-        Log.d("videoeditorclipcraft", "Replacing current video with edited version")
+        Log.d("videoeditorclipcraft", "Replacing current video with edited version, path: $tempVideoPath")
+        
+        // Empty path indicates background rendering in progress
+        if (tempVideoPath.isEmpty()) {
+            Log.d("videoeditorclipcraft", "Background rendering started, will update when complete")
+            return
+        }
+        
         val currentState = _processingState.value
         if (currentState is ProcessingState.Success) {
             // НЕ сохраняем в галерею, только обновляем путь к временному файлу

@@ -230,31 +230,21 @@ fun VideoEditorScreen(
             },
             navigationIcon = {
                 IconButton(onClick = {
-                    // Сохраняем текущее состояние и выходим
-                    showSaveProgress = true
-                    
-                    coroutineScope.launch {
-                        try {
-                            // Рендерим и сохраняем текущее состояние
-                            val renderedPath = viewModel.applyCurrentState { progress ->
-                                saveProgress = progress
-                            }
-                            showSaveProgress = false
-                            
-                            // Получаем обновленный план
-                            val updatedEditPlan = viewModel.getUpdatedEditPlan()
-                            
-                            // Передаем результат в главный экран
-                            // Добавляем небольшую задержку перед навигацией чтобы дать время на очистку ресурсов
-                            delay(100)
-                            onSave(renderedPath, updatedEditPlan)
-                        } catch (e: Exception) {
-                            showSaveProgress = false
-                            Log.e("VideoEditorScreen", "Failed to save video", e)
-                            // При ошибке просто выходим
-                            onExit()
+                    // Start background rendering and exit immediately
+                    viewModel.startBackgroundRendering(
+                        onComplete = { renderedPath ->
+                            Log.d("VideoEditorScreen", "Background render completed: $renderedPath")
+                        },
+                        onError = { error ->
+                            Log.e("VideoEditorScreen", "Background render failed", error)
                         }
-                    }
+                    )
+                    
+                    // Get updated edit plan
+                    val updatedEditPlan = viewModel.getUpdatedEditPlan()
+                    
+                    // Exit immediately, allowing render to continue in background
+                    onSave("", updatedEditPlan) // Empty path indicates rendering in progress
                 }) {
                     Icon(Icons.Default.ArrowBack, contentDescription = stringResource(R.string.action_back))
                 }

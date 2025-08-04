@@ -15,6 +15,9 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
 import java.io.File
 import java.util.UUID
 import javax.inject.Inject
@@ -26,6 +29,7 @@ import com.example.clipcraft.utils.TemporaryFileManager
 import com.example.clipcraft.utils.VideoEditorUpdateManager
 import com.example.clipcraft.domain.model.*
 import com.example.clipcraft.services.VideoRenderingService
+import com.example.clipcraft.services.BackgroundRenderingService
 
 @HiltViewModel
 class VideoEditorViewModel @Inject constructor(
@@ -38,7 +42,8 @@ class VideoEditorViewModel @Inject constructor(
     private val videoEditorUpdateManager: VideoEditorUpdateManager,
     private val videoEditorOrchestrator: VideoEditorOrchestrator,
     private val videoStateManager: VideoStateManager,
-    private val videoRenderingService: VideoRenderingService
+    private val videoRenderingService: VideoRenderingService,
+    private val backgroundRenderingService: BackgroundRenderingService
 ) : ViewModel() {
     
     companion object {
@@ -65,6 +70,9 @@ class VideoEditorViewModel @Inject constructor(
     
     // Rendering progress
     val renderingProgress: StateFlow<VideoRenderingService.RenderingProgress> = videoRenderingService.renderingProgress
+    
+    // Track active rendering job to prevent multiple renders
+    private var activeRenderingJob: Job? = null
     
     private val _editHistory = mutableListOf<EditAction>()
     private var _historyIndex = -1
@@ -925,7 +933,93 @@ class VideoEditorViewModel @Inject constructor(
     private var renderingJob: kotlinx.coroutines.Job? = null
     
     /**
+     * Start background rendering
+     * Returns immediately, allowing exit from editor
+     */
+    fun startBackgroundRendering(onComplete: (String) -> Unit, onError: (Exception) -> Unit) {
+        Log.d(TAG, "Starting background rendering")
+        
+        // Cancel any existing rendering job
+        activeRenderingJob?.cancel()
+        
+        val segments = _timelineState.value.segments
+        if (segments.isEmpty()) {
+            onError(IllegalStateException("No segments to render"))
+            return
+        }
+        
+        // Check if no changes were made
+        val currentState = _editorState.value
+        if (currentState.currentVideoPath != null && !currentState.hasUnsavedChanges) {
+            Log.d(TAG, "No changes detected, using existing video")
+            onComplete(currentState.currentVideoPath)
+            return
+        }
+        
+        _editorState.update { it.copy(isSaving = true) }
+        backgroundRenderingService.startRendering(segments.size)
+        
+        // Launch rendering in global scope to survive screen changes
+        activeRenderingJob = GlobalScope.launch {
+            try {
+                Log.d(TAG, "Background render started for ${segments.size} segments")
+                
+                // Render video with progress tracking
+                val renderedPath = videoRenderingService.renderSegments(segments) { progress ->
+                    val renderProgress = videoRenderingService.renderingProgress.value
+                    backgroundRenderingService.updateProgress(
+                        progress, 
+                        renderProgress.currentSegment,
+                        renderProgress.totalSegments
+                    )
+                }
+                
+                // Transition to final state
+                videoStateManager.transitionToFinalState(renderedPath, segments)
+                videoStateManager.applyCurrentState()
+                
+                // Update state
+                _editorState.update { 
+                    it.copy(
+                        isSaving = false,
+                        currentVideoPath = renderedPath,
+                        hasUnsavedChanges = false
+                    ) 
+                }
+                
+                // Clear history after successful save
+                _editHistory.clear()
+                _historyIndex = -1
+                
+                // Save state
+                saveState()
+                
+                // Complete background rendering
+                backgroundRenderingService.completeRendering(renderedPath)
+                
+                Log.d(TAG, "Background render completed: $renderedPath")
+                withContext(Dispatchers.Main) {
+                    onComplete(renderedPath)
+                }
+            } catch (e: CancellationException) {
+                Log.d(TAG, "Background render cancelled")
+                _editorState.update { it.copy(isSaving = false) }
+                backgroundRenderingService.reset()
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "Background render failed", e)
+                _editorState.update { it.copy(isSaving = false) }
+                backgroundRenderingService.failRendering(e)
+                withContext(Dispatchers.Main) {
+                    onError(e)
+                }
+            }
+        }
+    }
+    
+    /**
      * Apply current state - renders video and saves state
+     * Legacy method for compatibility - now starts background render
      */
     suspend fun applyCurrentState(onProgress: (Float) -> Unit): String {
         return try {

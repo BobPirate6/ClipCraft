@@ -40,6 +40,7 @@ class VideoRenderingService @Inject constructor(
 ) {
     companion object {
         private const val TAG = "VideoRenderingService"
+        private const val TAG_RENDER = "VideoRender" // Отдельный тег для процесса рендеринга
         private const val OUTPUT_DIR = "rendered_videos"
     }
     
@@ -78,17 +79,22 @@ class VideoRenderingService @Inject constructor(
         temporaryFileManager.registerTemporaryFile(outputFile.absolutePath)
         
         Log.d(TAG, "Starting render of ${segments.size} segments to ${outputFile.absolutePath}")
+        Log.d(TAG_RENDER, "=== RENDER START === segments: ${segments.size}, output: $fileName")
         
         try {
             // If only one segment and it's the full video, just copy it
             if (segments.size == 1 && canUseFastCopy(segments[0])) {
-                return fastCopyVideo(segments[0], outputFile)
+                Log.d(TAG_RENDER, "Using fast copy for single segment")
+                val result = fastCopyVideo(segments[0], outputFile)
+                Log.d(TAG_RENDER, "=== RENDER COMPLETE === fast copy: $fileName")
+                return result
             }
             
             // Otherwise use transformer - must be called from Main thread
             return renderWithTransformer(segments, outputFile, onProgress)
         } catch (e: Exception) {
             Log.e(TAG, "Rendering failed", e)
+            Log.e(TAG_RENDER, "=== RENDER FAILED === error: ${e.message}")
             withContext(Dispatchers.IO) {
                 outputFile.delete()
             }
@@ -154,6 +160,7 @@ class VideoRenderingService @Inject constructor(
                     exportResult: ExportResult
                 ) {
                     Log.d(TAG, "Rendering completed successfully")
+                    Log.d(TAG_RENDER, "=== RENDER COMPLETE === transformer: ${outputFile.name}, duration: ${exportResult.durationMs}ms")
                     continuation.resume(outputFile.absolutePath)
                 }
                 
@@ -175,6 +182,7 @@ class VideoRenderingService @Inject constructor(
                 currentSegment = current,
                 totalSegments = segments.size
             )
+            Log.d(TAG_RENDER, "Render progress: ${(progress * 100).toInt()}% (segment $current/${segments.size})")
             onProgress?.invoke(progress)
         }
         
