@@ -39,7 +39,8 @@
       "Bash(build_debug_with_java.bat)",
       "Bash(dir:*)",
       "Bash(git rm:*)",
-      "Bash(del nul)"
+      "Bash(del nul)",
+      "Bash(.\\\\gradlew:*)"
     ],
     "deny": []
   }

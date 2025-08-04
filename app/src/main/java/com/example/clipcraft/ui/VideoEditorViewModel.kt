@@ -965,14 +965,17 @@ class VideoEditorViewModel @Inject constructor(
                 Log.d(TAG, "Background render started for ${segments.size} segments")
                 
                 // Render video with progress tracking
-                val renderedPath = videoRenderingService.renderSegments(segments) { progress ->
-                    val renderProgress = videoRenderingService.renderingProgress.value
-                    backgroundRenderingService.updateProgress(
-                        progress, 
-                        renderProgress.currentSegment,
-                        renderProgress.totalSegments
-                    )
-                }
+                val renderedPath = videoRenderingService.renderSegments(
+                    segments = segments,
+                    onProgress = { progress ->
+                        val renderProgress = videoRenderingService.renderingProgress.value
+                        backgroundRenderingService.updateProgress(
+                            progress, 
+                            renderProgress.currentSegment,
+                            renderProgress.totalSegments
+                        )
+                    }
+                )
                 
                 // Transition to final state
                 videoStateManager.transitionToFinalState(renderedPath, segments)
