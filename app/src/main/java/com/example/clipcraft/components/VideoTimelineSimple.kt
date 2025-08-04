@@ -342,11 +342,11 @@ fun VideoTimelineSimple(
                                 .animateItemPlacement(
                                     animationSpec = if (segment.id == draggingSegmentId) {
                                         // Отключаем анимацию для перетаскиваемого сегмента
-                                        spring(stiffness = 10000f)
+                                        spring(stiffness = 5000f)
                                     } else {
                                         spring(
-                                            dampingRatio = 0.8f,
-                                            stiffness = 400f
+                                            dampingRatio = 1.0f,
+                                            stiffness = 100f
                                         )
                                     }
                                 )
@@ -354,12 +354,23 @@ fun VideoTimelineSimple(
                         ) {
                         VideoSegmentSimple(
                             segment = segment,
+                            segments = segments,
                             index = index,
                             isSelected = segment.id == selectedSegmentId,
                             isDragging = segment.id == draggingSegmentId,
+                            isPlaying = isPlaying,
+                            currentPosition = currentPosition,
                             zoomLevel = effectiveZoom,
                             visualOffsetCorrection = if (segment.id == draggingSegmentId) visualOffsetCorrection else 0f,
-                            onSegmentClick = { onSegmentClick(segment) },
+                            onSegmentClick = { 
+                                onSegmentClick(segment)
+                                // При клике на сегмент перемещаем позицию к его началу
+                                var segmentStartPos = 0f
+                                for (i in 0 until index) {
+                                    segmentStartPos += segments[i].duration
+                                }
+                                onPositionChange(segmentStartPos)
+                            },
                             onSegmentDelete = { onSegmentDelete(segment.id) },
                             onSegmentReorder = onSegmentReorder,
                             onSegmentTrim = { deltaTime, isStart ->
@@ -427,9 +438,12 @@ fun VideoTimelineSimple(
 @Composable
 private fun VideoSegmentSimple(
     segment: VideoSegment,
+    segments: List<VideoSegment>,
     index: Int,
     isSelected: Boolean,
     isDragging: Boolean,
+    isPlaying: Boolean,
+    currentPosition: Float,
     zoomLevel: Float,
     visualOffsetCorrection: Float = 0f,
     onSegmentClick: () -> Unit,
@@ -440,6 +454,17 @@ private fun VideoSegmentSimple(
     onSnapSegments: () -> Unit = {}
 ) {
     val density = LocalDensity.current
+    
+    // Проверяем, проигрывается ли сейчас этот сегмент
+    var segmentStartPos = 0f
+    for (i in 0 until index) {
+        segmentStartPos += segments[i].duration
+    }
+    val segmentEndPos = segmentStartPos + segment.duration
+    val isCurrentlyPlaying = isPlaying && currentPosition >= segmentStartPos && currentPosition < segmentEndPos
+    val progressInSegment = if (isCurrentlyPlaying) {
+        ((currentPosition - segmentStartPos) / segment.duration).coerceIn(0f, 1f)
+    } else 0f
     
     // Состояние для drag
     var isDragging by remember { mutableStateOf(false) }
@@ -531,11 +556,13 @@ private fun VideoSegmentSimple(
                     .border(
                     width = when {
                         isDragging -> 4.dp  // Еще толще обводка при перетаскивании
+                        isCurrentlyPlaying -> 3.dp  // Подсвечиваем текущий сегмент
                         isSelected -> 2.dp
                         else -> 1.dp
                     },
                     color = when {
                         isDragging -> Color(0xFFFFC107)  // Яркий желтый при перетаскивании
+                        isCurrentlyPlaying -> Color(0xFF4CAF50)  // Зеленый для проигрываемого
                         isSelected -> MaterialTheme.colorScheme.primary
                         else -> Color.White.copy(alpha = 0.3f)
                     },
@@ -695,6 +722,26 @@ private fun VideoSegmentSimple(
             )
         }
         
+        // Линия прогресса для текущего проигрываемого сегмента
+        if (isCurrentlyPlaying && progressInSegment > 0f) {
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .fillMaxWidth(progressInSegment)
+                    .align(Alignment.CenterStart)
+                    .background(Color.White.copy(alpha = 0.3f))
+            )
+            
+            // Вертикальная линия на текущей позиции
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .width(2.dp)
+                    .offset(x = with(density) { (visualWidth * progressInSegment).toDp() })
+                    .background(Color.White)
+            )
+        }
+        
         // Длительность сегмента с учетом визуального триммирования
         val displayDuration = if (isTrimming) {
             val deltaTime = visualTrimOffset / (PIXELS_PER_SECOND * zoomLevel)
@@ -779,7 +826,6 @@ private fun VideoSegmentSimple(
                 )
             }
         }
-            }
     }
 }
 

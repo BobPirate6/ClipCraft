@@ -20,6 +20,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.res.stringResource
+import com.example.clipcraft.R
 
 /**
  * Туториал для голосового редактирования
@@ -81,7 +83,7 @@ fun VoiceEditTutorial(
                         
                         // Заголовок
                         Text(
-                            text = "Редактирование голосом",
+                            text = stringResource(R.string.tutorial_voice_title),
                             style = MaterialTheme.typography.headlineSmall,
                             fontWeight = FontWeight.Bold,
                             textAlign = TextAlign.Center
@@ -92,7 +94,7 @@ fun VoiceEditTutorial(
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             Text(
-                                text = "Используйте голосовые команды для изменения монтажа:",
+                                text = stringResource(R.string.tutorial_voice_description),
                                 style = MaterialTheme.typography.bodyMedium,
                                 textAlign = TextAlign.Center
                             )
@@ -104,14 +106,14 @@ fun VoiceEditTutorial(
                                     .fillMaxWidth()
                                     .padding(horizontal = 16.dp)
                             ) {
-                                CommandExample("«Убери первые 5 секунд»")
-                                CommandExample("«Поменяй местами первый и второй фрагмент»")
-                                CommandExample("«Оставь только говорящие части»")
-                                CommandExample("«Ускорь второй фрагмент в 2 раза»")
+                                CommandExample(stringResource(R.string.tutorial_voice_example1))
+                                CommandExample(stringResource(R.string.tutorial_voice_example2))
+                                CommandExample(stringResource(R.string.tutorial_voice_example3))
+                                CommandExample(stringResource(R.string.tutorial_voice_example4))
                             }
                             
                             Text(
-                                text = "AI поймет вашу команду и внесет соответствующие изменения в монтаж.",
+                                text = stringResource(R.string.tutorial_voice_ai_note),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 textAlign = TextAlign.Center,
@@ -124,7 +126,7 @@ fun VoiceEditTutorial(
                             onClick = onDismiss,
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("Понятно")
+                            Text(stringResource(R.string.tutorial_voice_button_ok))
                         }
                     }
                 }

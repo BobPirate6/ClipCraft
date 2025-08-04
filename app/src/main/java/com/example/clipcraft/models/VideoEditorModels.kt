@@ -121,6 +121,7 @@ data class VideoEditorState(
     val editHistory: EditHistoryState = EditHistoryState(),
     val originalPlan: EditPlan? = null,           // Исходный план монтажа
     val tempVideoPath: String? = null,            // Путь к временному видео
+    val currentVideoPath: String? = null,         // Текущий путь к видео
     val isProcessing: Boolean = false,
     val isSaving: Boolean = false,
     val hasUnsavedChanges: Boolean = false

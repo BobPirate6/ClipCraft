@@ -186,12 +186,16 @@ class VideoEditorService @Inject constructor(
                     Log.d(TAG, "Создаем композицию с одним элементом")
                     Composition.Builder(
                         EditedMediaItemSequence(editedMediaItems.first())
-                    ).build()
+                    )
+                    .experimentalSetForceAudioTrack(true)
+                    .build()
                 } else {
                     Log.d(TAG, "Создаем композицию с ${editedMediaItems.size} элементами")
                     Composition.Builder(
                         EditedMediaItemSequence(editedMediaItems)
-                    ).build()
+                    )
+                    .experimentalSetForceAudioTrack(true)
+                    .build()
                 }
 
                 // Запускаем экспорт

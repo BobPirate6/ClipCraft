@@ -16,9 +16,19 @@
 -keepattributes RuntimeVisibleAnnotations, RuntimeVisibleParameterAnnotations
 -keepattributes AnnotationDefault
 
+# Сохраняем все Retrofit интерфейсы
+-keep interface com.example.clipcraft.data.remote.** { *; }
+-keep class com.example.clipcraft.data.remote.** { *; }
+
+# Сохраняем методы с аннотациями Retrofit
 -keepclassmembers,allowshrinking,allowobfuscation interface * {
     @retrofit2.http.* <methods>;
 }
+
+# Сохраняем generic типы для Retrofit
+-keep,allowobfuscation,allowshrinking interface retrofit2.Call
+-keep,allowobfuscation,allowshrinking class retrofit2.Response
+-keep,allowobfuscation,allowshrinking class kotlin.coroutines.Continuation
 
 -dontwarn org.codehaus.mojo.animal_sniffer.IgnoreJRERequirement
 -dontwarn javax.annotation.**
@@ -84,6 +94,13 @@
     volatile <fields>;
 }
 
+# Сохраняем suspend функции
+-keepclassmembers class * {
+    suspend <methods>;
+}
+-keep class kotlin.coroutines.jvm.internal.** { *; }
+-keep class kotlin.coroutines.SafeContinuation { *; }
+
 # === WorkManager ===
 -keep class androidx.work.** { *; }
 -keep class * extends androidx.work.Worker
@@ -97,13 +114,90 @@
 -keep class com.example.clipcraft.data.remote.** { *; }
 
 # === Убираем логи в release ===
--assumenosideeffects class android.util.Log {
-    public static boolean isLoggable(java.lang.String, int);
-    public static int v(...);
-    public static int i(...);
-    public static int w(...);
-    public static int d(...);
-    public static int e(...);
+# ВРЕМЕННО ЗАКОММЕНТИРОВАНО ДЛЯ ОТЛАДКИ
+# -assumenosideeffects class android.util.Log {
+#     public static boolean isLoggable(java.lang.String, int);
+#     public static int v(...);
+#     public static int i(...);
+#     public static int w(...);
+#     public static int d(...);
+#     public static int e(...);
+# }
+
+# === Media3 Transformer и видео обработка ===
+-keep class androidx.media3.transformer.** { *; }
+-keep class androidx.media3.effect.** { *; }
+-keep class androidx.media3.common.** { *; }
+-keep class androidx.media3.decoder.** { *; }
+-keep class androidx.media3.exoplayer.** { *; }
+-dontwarn androidx.media3.**
+
+# === MediaCodec и видео обработка ===
+-keep class android.media.** { *; }
+-keep class * implements android.media.MediaCodec$Callback { *; }
+-keep class * extends android.media.MediaCodecInfo { *; }
+
+# === Services и Workers ===
+-keep class com.example.clipcraft.services.** { *; }
+-keep class com.example.clipcraft.workers.** { *; }
+-keep class com.example.clipcraft.domain.** { *; }
+-keep class com.example.clipcraft.data.** { *; }
+-keep class com.example.clipcraft.ui.** { *; }
+
+# === Нативные методы ===
+-keepclasseswithmembernames class * {
+    native <methods>;
+}
+
+# === Классы для рефлексии ===
+-keepattributes *Annotation*
+-keepattributes Exceptions
+-keepattributes InnerClasses
+-keepattributes Signature
+-keepattributes SourceFile,LineNumberTable
+
+# === Coil (для загрузки изображений) ===
+-keep class coil.** { *; }
+-dontwarn coil.**
+
+# === Транскрипция и аудио обработка ===
+-keep class com.example.clipcraft.services.TranscriptionService { *; }
+-keep class com.example.clipcraft.services.AudioExtractorService { *; }
+-keep class com.example.clipcraft.services.VideoAnalyzerService { *; }
+
+# === Сетевые запросы и API ===
+-keepclassmembers class com.example.clipcraft.data.remote.** {
+    <fields>;
+    <methods>;
+}
+-keep class com.example.clipcraft.models.api.** { *; }
+
+# === Предотвращаем удаление enum'ов ===
+-keepclassmembers enum * {
+    public static **[] values();
+    public static ** valueOf(java.lang.String);
+}
+
+# === Сохраняем Parcelable ===
+-keepclassmembers class * implements android.os.Parcelable {
+    public static final android.os.Parcelable$Creator CREATOR;
+}
+
+# === Сохраняем Serializable ===
+-keepclassmembers class * implements java.io.Serializable {
+    static final long serialVersionUID;
+    private static final java.io.ObjectStreamField[] serialPersistentFields;
+    private void writeObject(java.io.ObjectOutputStream);
+    private void readObject(java.io.ObjectInputStream);
+    java.lang.Object writeReplace();
+    java.lang.Object readResolve();
+}
+
+# === Room Database ===
+-keep class * extends androidx.room.RoomDatabase
+-keep @androidx.room.Entity class *
+-keepclassmembers @androidx.room.Entity class * {
+    *;
 }
 
 # === Убираем отладочную информацию ===

@@ -23,12 +23,17 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import java.io.File
 import java.io.FileOutputStream
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
+import com.example.clipcraft.utils.TemporaryFileManager
 
 data class VideoInfo(
     val duration: Float,
@@ -39,7 +44,8 @@ data class VideoInfo(
 
 @Singleton
 class VideoEditingService @Inject constructor(
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    private val temporaryFileManager: TemporaryFileManager
 ) {
     companion object {
         private const val TAG = "VideoEditingService"
@@ -102,6 +108,7 @@ class VideoEditingService @Inject constructor(
                     FileOutputStream(thumbnailFile).use { out ->
                         it.compress(Bitmap.CompressFormat.JPEG, 80, out)
                     }
+                    temporaryFileManager.registerTemporaryFile(thumbnailFile.absolutePath)
                     thumbnails.add(Uri.fromFile(thumbnailFile))
                 }
             }
@@ -118,6 +125,7 @@ class VideoEditingService @Inject constructor(
     @OptIn(UnstableApi::class)
     suspend fun createTempVideo(segments: List<VideoSegment>): String = withContext(Dispatchers.Main) {
         val outputFile = File(tempDir, "temp_${System.currentTimeMillis()}.mp4")
+        temporaryFileManager.registerTemporaryFile(outputFile.absolutePath)
         
         try {
             suspendCancellableCoroutine { continuation ->
@@ -197,6 +205,9 @@ class VideoEditingService @Inject constructor(
         
         return withContext(Dispatchers.Main) {
             suspendCancellableCoroutine { continuation ->
+                var isCompleted = false
+                var progressJob: Job? = null
+                
                 val transformer = Transformer.Builder(context)
                     .setLooper(Looper.getMainLooper())
                     .setVideoMimeType(MimeTypes.VIDEO_H264)
@@ -204,6 +215,8 @@ class VideoEditingService @Inject constructor(
                     .addListener(object : Transformer.Listener {
                         override fun onCompleted(composition: Composition, exportResult: ExportResult) {
                             Log.d(TAG, "Final video created successfully")
+                            isCompleted = true
+                            progressJob?.cancel()
                             onProgress(1f)
                             continuation.resume(outputFile.absolutePath)
                         }
@@ -214,8 +227,12 @@ class VideoEditingService @Inject constructor(
                             exportException: ExportException
                         ) {
                             Log.e(TAG, "Error creating final video", exportException)
+                            isCompleted = true
+                            progressJob?.cancel()
                             continuation.resumeWithException(exportException)
                         }
+                        
+                        // onFallbackApplied removed - not available in current Media3 version
                     })
                     .build()
                 
@@ -241,7 +258,27 @@ class VideoEditingService @Inject constructor(
                 
                 transformer.start(composition, outputPath)
                 
+                // Запускаем корутину для обновления прогресса
+                progressJob = CoroutineScope(Dispatchers.Main).launch {
+                    val totalDuration = segments.sumOf { (it.endTime - it.startTime).toDouble() }.toFloat()
+                    val startTime = System.currentTimeMillis()
+                    
+                    while (!isCompleted) {
+                        delay(100) // Обновляем каждые 100мс
+                        
+                        // Примерный расчет прогресса на основе времени
+                        // Предполагаем, что обработка занимает примерно столько же времени, сколько длительность видео
+                        val elapsedTime = (System.currentTimeMillis() - startTime) / 1000f
+                        val estimatedProgress = (elapsedTime / (totalDuration * 0.5f)).coerceIn(0f, 0.99f)
+                        
+                        if (!isCompleted) {
+                            onProgress(estimatedProgress)
+                        }
+                    }
+                }
+                
                 continuation.invokeOnCancellation {
+                    progressJob?.cancel()
                     transformer.cancel()
                 }
             }

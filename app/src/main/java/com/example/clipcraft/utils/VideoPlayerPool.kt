@@ -6,6 +6,7 @@ import android.util.Log
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.DefaultLoadControl
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import java.util.concurrent.ConcurrentHashMap
@@ -44,13 +45,27 @@ object VideoPlayerPool {
             releaseLeastRecentlyUsedPlayer()
         }
         
-        // Create new player
+        // Create new player with optimized load control for seamless playback
         Log.d(TAG, "Creating new player for key: $key")
+        
+        val loadControl = DefaultLoadControl.Builder()
+            .setBufferDurationsMs(
+                50000,  // Min buffer duration (50 seconds)
+                200000, // Max buffer duration (200 seconds)
+                2500,   // Buffer for playback (2.5 seconds)
+                5000    // Buffer for rebuffering (5 seconds)
+            )
+            .setPrioritizeTimeOverSizeThresholds(true)
+            .build()
+        
         val player = ExoPlayer.Builder(context)
+            .setLoadControl(loadControl)
             .setReleaseTimeoutMs(60000) // Release after 60 seconds of inactivity
             .build().apply {
-                setMediaItem(MediaItem.fromUri(uri))
-                prepare()
+                if (uri != Uri.EMPTY) {
+                    setMediaItem(MediaItem.fromUri(uri))
+                    prepare()
+                }
                 playWhenReady = false
                 
                 addListener(object : Player.Listener {
@@ -110,14 +125,18 @@ object VideoPlayerPool {
      * Release players that haven't been used recently.
      */
     fun releaseUnusedPlayers(maxAgeMs: Long = 30000) {
-        val currentTime = System.currentTimeMillis()
-        
-        playerUsage.entries
-            .filter { (_, lastUsed) -> currentTime - lastUsed > maxAgeMs }
-            .forEach { (key, _) ->
-                Log.d(TAG, "Releasing unused player: $key")
-                releasePlayer(key)
-            }
+        try {
+            val currentTime = System.currentTimeMillis()
+            
+            playerUsage.entries
+                .filter { (_, lastUsed) -> currentTime - lastUsed > maxAgeMs }
+                .forEach { (key, _) ->
+                    Log.d(TAG, "Releasing unused player: $key")
+                    releasePlayer(key)
+                }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error releasing unused players", e)
+        }
     }
     
     private fun releaseLeastRecentlyUsedPlayer() {

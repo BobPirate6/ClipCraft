@@ -23,6 +23,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import android.speech.RecognizerIntent
 import android.app.Activity
+import androidx.compose.ui.res.stringResource
+import com.example.clipcraft.R
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -72,11 +74,11 @@ fun EditVideoDialog(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Редактировать видео",
+                        text = stringResource(R.string.edit_video_title),
                         style = MaterialTheme.typography.headlineSmall
                     )
                     IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.Close, contentDescription = "Закрыть")
+                        Icon(Icons.Default.Close, contentDescription = stringResource(R.string.action_close))
                     }
                 }
 
@@ -103,7 +105,7 @@ fun EditVideoDialog(
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "Текущая команда:",
+                                text = stringResource(R.string.edit_video_current_command),
                                 style = MaterialTheme.typography.labelMedium
                             )
                         }
@@ -125,7 +127,7 @@ fun EditVideoDialog(
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = if (showPlan) "Скрыть план" else "Показать план монтажа",
+                                text = if (showPlan) stringResource(R.string.edit_video_hide_plan) else stringResource(R.string.edit_video_show_plan),
                                 style = MaterialTheme.typography.labelMedium
                             )
                         }
@@ -188,7 +190,7 @@ fun EditVideoDialog(
                 // Поле для новой команды
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        text = "Что изменить?",
+                        text = stringResource(R.string.edit_dialog_title),
                         style = MaterialTheme.typography.titleMedium
                     )
 
@@ -196,7 +198,7 @@ fun EditVideoDialog(
                         value = editCommand,
                         onValueChange = { editCommand = it },
                         placeholder = {
-                            Text("Например: убери первые 2 секунды, добавь более динамичные переходы")
+                            Text(stringResource(R.string.edit_dialog_placeholder))
                         },
                         modifier = Modifier.fillMaxWidth(),
                         minLines = 3,
@@ -206,37 +208,20 @@ fun EditVideoDialog(
                                 val intent = android.content.Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                                     putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                                     putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ru-RU")
-                                    putExtra(RecognizerIntent.EXTRA_PROMPT, "Скажите, что нужно изменить в видео")
+                                    putExtra(RecognizerIntent.EXTRA_PROMPT, context.getString(R.string.edit_video_voice_prompt))
                                 }
                                 speechRecognizerLauncher.launch(intent)
                             }) {
                                 Icon(
                                     Icons.Default.Mic,
-                                    contentDescription = "Голосовой ввод",
+                                    contentDescription = stringResource(R.string.main_voice_input),
                                     tint = MaterialTheme.colorScheme.primary
                                 )
                             }
                         }
                     )
 
-                    // Подсказки
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        // Убраны чипы "Короче" и "+ Музыка"
-                        AssistChip(
-                            onClick = { editCommand = "Убери паузы" },
-                            label = { Text("Без пауз") },
-                            leadingIcon = {
-                                Icon(
-                                    Icons.Default.Settings,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            }
-                        )
-                    }
+                    // Убраны все подсказки включая "Без пауз" по требованию пользователя
                 }
 
                 // Кнопки действий
@@ -248,7 +233,7 @@ fun EditVideoDialog(
                         onClick = onDismiss,
                         modifier = Modifier.weight(1f)
                     ) {
-                        Text("Отмена")
+                        Text(stringResource(R.string.action_cancel))
                     }
                     Button(
                         onClick = {

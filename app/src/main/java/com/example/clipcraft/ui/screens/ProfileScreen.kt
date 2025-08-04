@@ -16,8 +16,25 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalUriHandler
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.GlobalScope
+import androidx.compose.ui.res.stringResource
+import com.example.clipcraft.R
 import com.example.clipcraft.models.EditHistory
 import com.example.clipcraft.models.User
+import com.example.clipcraft.utils.LocaleManager
+import com.example.clipcraft.utils.LocaleHelper
+import androidx.compose.ui.platform.LocalContext
+import android.app.Activity
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.ViewModel
+import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
+
+@HiltViewModel
+class ProfileViewModel @Inject constructor(
+    val localeManager: LocaleManager
+) : ViewModel()
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -31,24 +48,31 @@ fun ProfileScreen(
     onDeleteAccount: () -> Unit,  // Добавлено
     onSignOut: () -> Unit,  // Добавлено
     onTutorialEnabledChange: (Boolean) -> Unit,
-    onStartTutorial: () -> Unit
+    onStartTutorial: () -> Unit,
+    onNavigateToSubscription: () -> Unit
 ) {
+    val viewModel: ProfileViewModel = hiltViewModel()
+    val localeManager = viewModel.localeManager
+    val context = LocalContext.current
+    val activity = context as? Activity
     var displayName by remember(user?.displayName) { mutableStateOf(user?.displayName ?: "") }
     var isHistoryExpanded by remember { mutableStateOf(false) }
+    val currentLanguage by localeManager.localeFlow.collectAsState(initial = LocaleManager.DEFAULT_LOCALE)
+    var isLanguageDropdownExpanded by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Профиль") },
+                title = { Text(stringResource(R.string.nav_profile)) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Назад")
+                        Icon(Icons.Default.ArrowBack, contentDescription = stringResource(R.string.action_back))
                     }
                 },
                 actions = {
                     if (displayName != (user?.displayName ?: "")) {
                         IconButton(onClick = { onUpdateName(displayName) }) {
-                            Icon(Icons.Default.Done, contentDescription = "Сохранить имя")
+                            Icon(Icons.Default.Done, contentDescription = stringResource(R.string.profile_save_name))
                         }
                     }
                 }
@@ -57,7 +81,7 @@ fun ProfileScreen(
     ) { paddingValues ->
         if (user == null) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("Пользователь не найден")
+                Text(stringResource(R.string.profile_user_not_found))
             }
             return@Scaffold
         }
@@ -93,14 +117,14 @@ fun ProfileScreen(
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                "История монтажей",
+                                stringResource(R.string.profile_edit_history),
                                 style = MaterialTheme.typography.titleLarge
                             )
                             Text(
                                 if (editHistory.isEmpty()) 
-                                    "Ваша история пока пуста"
+                                    stringResource(R.string.profile_history_empty)
                                 else 
-                                    "${editHistory.size} монтажей",
+                                    stringResource(R.string.profile_history_count, editHistory.size),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -134,12 +158,51 @@ fun ProfileScreen(
                     }
                 }
             }
+            
+            // Кнопка управления подписками
+            item {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
+                    onClick = onNavigateToSubscription,
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                stringResource(R.string.profile_subscription_management),
+                                style = MaterialTheme.typography.titleLarge,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                            Text(
+                                stringResource(R.string.profile_subscription_description),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
+                            )
+                        }
+                        Icon(
+                            imageVector = Icons.Default.ExpandMore,
+                            contentDescription = stringResource(R.string.profile_open_subscriptions),
+                            tint = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                    }
+                }
+            }
 
             // Секция настроек
             item {
                 Spacer(modifier = Modifier.height(24.dp))
                 Text(
-                    "Настройки",
+                    stringResource(R.string.profile_settings),
                     style = MaterialTheme.typography.titleLarge,
                     modifier = Modifier.padding(top = 16.dp, bottom = 8.dp)
                 )
@@ -165,11 +228,11 @@ fun ProfileScreen(
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                "Обучающий режим",
+                                stringResource(R.string.profile_tutorial_mode),
                                 style = MaterialTheme.typography.titleMedium
                             )
                             Text(
-                                "Показывать подсказки при использовании приложения",
+                                stringResource(R.string.profile_tutorial_description),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -188,7 +251,71 @@ fun ProfileScreen(
                         onClick = onStartTutorial,
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text("Начать обучение заново")
+                        Text(stringResource(R.string.profile_restart_tutorial))
+                    }
+                }
+            }
+            
+            // Language selector
+            item {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surface
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp)
+                    ) {
+                        Text(
+                            stringResource(R.string.profile_language),
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        
+                        ExposedDropdownMenuBox(
+                            expanded = isLanguageDropdownExpanded,
+                            onExpandedChange = { isLanguageDropdownExpanded = it }
+                        ) {
+                            OutlinedTextField(
+                                value = LocaleManager.SUPPORTED_LOCALES[currentLanguage] ?: LocaleManager.SUPPORTED_LOCALES[LocaleManager.DEFAULT_LOCALE]!!,
+                                onValueChange = {},
+                                readOnly = true,
+                                trailingIcon = {
+                                    ExposedDropdownMenuDefaults.TrailingIcon(
+                                        expanded = isLanguageDropdownExpanded
+                                    )
+                                },
+                                modifier = Modifier
+                                    .menuAnchor()
+                                    .fillMaxWidth()
+                            )
+                            
+                            ExposedDropdownMenu(
+                                expanded = isLanguageDropdownExpanded,
+                                onDismissRequest = { isLanguageDropdownExpanded = false }
+                            ) {
+                                LocaleManager.SUPPORTED_LOCALES.forEach { (code, name) ->
+                                    DropdownMenuItem(
+                                        text = { Text(name) },
+                                        onClick = {
+                                            isLanguageDropdownExpanded = false
+                                            if (code != currentLanguage) {
+                                                kotlinx.coroutines.GlobalScope.launch {
+                                                    localeManager.setLocale(code)
+                                                }
+                                                activity?.let { act ->
+                                                    LocaleHelper.setLanguage(act, code)
+                                                    act.recreate()
+                                                }
+                                            }
+                                        }
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -217,19 +344,19 @@ fun ProfileScreen(
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                "Форма обратной связи",
+                                stringResource(R.string.profile_feedback_form),
                                 style = MaterialTheme.typography.titleMedium,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer
                             )
                             Text(
-                                "Помогите нам улучшить приложение",
+                                stringResource(R.string.profile_feedback_description),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
                             )
                         }
                         Icon(
                             imageVector = Icons.Default.ExpandMore,
-                            contentDescription = "Открыть форму",
+                            contentDescription = stringResource(R.string.profile_open_form),
                             tint = MaterialTheme.colorScheme.onPrimaryContainer
                         )
                     }
@@ -243,7 +370,7 @@ fun ProfileScreen(
                     onClick = onSignOut,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("Выйти из аккаунта")
+                    Text(stringResource(R.string.profile_sign_out))
                 }
             }
         }
@@ -264,12 +391,12 @@ private fun UserInfoSection(
             OutlinedTextField(
                 value = displayName,
                 onValueChange = onDisplayNameChange,
-                label = { Text("Ваше имя") },
+                label = { Text(stringResource(R.string.profile_your_name)) },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true
             )
-            Text("Email: ${user.email}", style = MaterialTheme.typography.bodyMedium)
-            Text("Кредиты: ${user.creditsRemaining}", style = MaterialTheme.typography.bodyMedium)
+            Text(stringResource(R.string.profile_email_format, user.email), style = MaterialTheme.typography.bodyMedium)
+            Text(stringResource(R.string.profile_credits_format, user.creditsRemaining), style = MaterialTheme.typography.bodyMedium)
         }
     }
 }

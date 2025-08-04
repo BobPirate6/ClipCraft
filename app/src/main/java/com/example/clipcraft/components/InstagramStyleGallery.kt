@@ -29,9 +29,11 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.example.clipcraft.R
 import coil.compose.AsyncImage
 import coil.decode.VideoFrameDecoder
 import coil.request.ImageRequest
@@ -61,7 +63,7 @@ fun InstagramStyleGallery(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = if (isEditMode) "добавь или убери видео" else "выбери видео",
+                text = if (isEditMode) stringResource(R.string.main_add_remove_video_instruction) else stringResource(R.string.main_select_video_instruction),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -96,7 +98,7 @@ fun InstagramStyleGallery(
                                     )
                                     Spacer(modifier = Modifier.width(4.dp))
                                     Text(
-                                        text = "Редактировать вручную",
+                                        text = stringResource(R.string.main_edit_manually),
                                         style = MaterialTheme.typography.labelSmall
                                     )
                                 }
@@ -114,7 +116,7 @@ fun InstagramStyleGallery(
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text(
-                                    text = "Редактировать вручную",
+                                    text = stringResource(R.string.main_edit_manually),
                                     style = MaterialTheme.typography.labelSmall
                                 )
                             }
@@ -324,13 +326,13 @@ private fun GalleryButton(
         ) {
             Icon(
                 imageVector = Icons.Default.PhotoLibrary,
-                contentDescription = "Галерея",
+                contentDescription = stringResource(R.string.nav_gallery),
                 modifier = Modifier.size(32.dp),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = "Галерея",
+                text = stringResource(R.string.nav_gallery),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -361,16 +363,16 @@ private fun FullScreenGalleryDialog(
         Scaffold(
             topBar = {
                 TopAppBar(
-                    title = { Text("Выберите видео") },
+                    title = { Text(stringResource(R.string.gallery_select_video)) },
                     navigationIcon = {
                         IconButton(onClick = onDismiss) {
-                            Icon(Icons.Default.Close, contentDescription = "Закрыть")
+                            Icon(Icons.Default.Close, contentDescription = stringResource(R.string.action_close))
                         }
                     },
                     actions = {
                         if (selectedVideos.isNotEmpty()) {
                             TextButton(onClick = onDismiss) {
-                                Text("Готово (${selectedVideos.size})")
+                                Text(stringResource(R.string.action_done, selectedVideos.size))
                             }
                         }
                     }

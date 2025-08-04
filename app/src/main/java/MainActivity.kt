@@ -20,6 +20,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.res.stringResource
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.example.clipcraft.models.*
@@ -27,6 +28,7 @@ import com.example.clipcraft.ui.MainViewModel
 import com.example.clipcraft.ui.screens.NewMainScreen
 import com.example.clipcraft.ui.screens.ProfileScreen
 import com.example.clipcraft.ui.screens.IntroScreen
+import com.example.clipcraft.ui.screens.SubscriptionScreen
 import com.example.clipcraft.screens.VideoEditorScreen
 import com.example.clipcraft.models.ProcessingState
 import com.example.clipcraft.ui.theme.ClipCraftTheme
@@ -41,9 +43,14 @@ import androidx.activity.result.contract.ActivityResultContracts
 import com.example.clipcraft.security.SecurityConfig
 import com.example.clipcraft.BuildConfig
 import com.example.clipcraft.utils.VideoPlayerPool
+import com.example.clipcraft.utils.LocaleHelper
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+    
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(LocaleHelper.onAttach(newBase, "en"))
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
@@ -140,8 +147,8 @@ fun ClipCraftApp() {
     // Показываем диалоги
     if (showFeedbackDialog) {
         FeedbackDialog(
-            title = "Поделитесь впечатлениями",
-            message = "Вы создали уже 3 видео! Как вам наше приложение? Ваш отзыв поможет нам стать лучше.",
+            title = stringResource(R.string.feedback_dialog_title),
+            message = stringResource(R.string.feedback_dialog_message),
             onDismiss = { viewModel.dismissFeedbackDialog() },
             onFillForm = { viewModel.dismissFeedbackDialog() }
         )
@@ -198,6 +205,9 @@ fun ClipCraftApp() {
                         onStartTutorial = {
                             viewModel.startTutorial()
                             viewModel.navigateTo(MainViewModel.Screen.Main)
+                        },
+                        onNavigateToSubscription = {
+                            viewModel.navigateTo(MainViewModel.Screen.Subscription)
                         }
                     )
                 }
@@ -213,16 +223,21 @@ fun ClipCraftApp() {
             when (authState) {
                 is AuthState.Authenticated -> {
                     val processingState by viewModel.processingState.collectAsState()
+                    val editingState by viewModel.editingState.collectAsState()
                     Log.d("videoeditorclipcraft", "VideoEditor screen: processingState = ${processingState.javaClass.simpleName}")
+                    Log.d("videoeditorclipcraft", "VideoEditor screen: isVoiceEditingFromEditor = ${editingState.isVoiceEditingFromEditor}")
+                    
                     when (val state = processingState) {
                         is ProcessingState.Success -> {
                             Log.d("videoeditorclipcraft", "VideoEditor: Success state with editPlan=${state.editPlan != null}")
+                            Log.d("videoeditorclipcraft", "VideoEditor: Result path = ${state.result}")
                             if (state.editPlan != null && state.videoAnalyses != null) {
                                 val selectedVideos by viewModel.selectedVideos.collectAsState()
                                 VideoEditorScreen(
                                     editPlan = state.editPlan,
                                     videoAnalyses = state.videoAnalyses,
                                     selectedVideos = selectedVideos,
+                                    currentVideoPath = if (editingState.mode == ProcessingMode.EDIT) state.result else null,
                                     onSave = { tempVideoPath, updatedEditPlan ->
                                         // Заменяем текущее видео отредактированным
                                         viewModel.replaceCurrentVideoWithEdited(tempVideoPath, updatedEditPlan)
@@ -248,6 +263,19 @@ fun ClipCraftApp() {
                                         viewModel.navigateTo(MainViewModel.Screen.Main)
                                     },
                                     onExit = {
+                                        // При выходе из редактора восстанавливаем предыдущее состояние видео
+                                        val currentProcessingState = viewModel.processingState.value
+                                        val currentVideoPath = editingState.currentVideoPath
+                                        if (currentProcessingState is ProcessingState.Success && currentVideoPath != null) {
+                                            // Обновляем ProcessingState с путем к текущему видео
+                                            val editPlan = currentProcessingState.editPlan
+                                            if (editPlan != null) {
+                                                viewModel.replaceCurrentVideoWithEdited(
+                                                    currentVideoPath, 
+                                                    editPlan
+                                                )
+                                            }
+                                        }
                                         viewModel.navigateTo(MainViewModel.Screen.Main)
                                     },
                                     mainViewModel = viewModel
@@ -260,14 +288,93 @@ fun ClipCraftApp() {
                                 }
                             }
                         }
+                        is ProcessingState.Processing -> {
+                            if (editingState.isVoiceEditingFromEditor) {
+                                // Если идет обработка AI редактирования из редактора,
+                                // остаемся в редакторе и показываем текущее состояние редактора
+                                Log.d("videoeditorclipcraft", "VideoEditor: Processing AI edit from editor, showing existing editor")
+                                
+                                // Получаем предыдущее состояние из хранилища
+                                val lastSuccessState = editingState.previousPlan
+                                val lastVideoAnalyses = editingState.originalVideoAnalyses
+                                val selectedVideos by viewModel.selectedVideos.collectAsState()
+                                
+                                if (lastSuccessState != null && lastVideoAnalyses != null) {
+                                VideoEditorScreen(
+                                    editPlan = lastSuccessState,
+                                    videoAnalyses = lastVideoAnalyses,
+                                    selectedVideos = selectedVideos,
+                                    currentVideoPath = editingState.currentVideoPath,
+                                    onSave = { tempVideoPath, updatedEditPlan ->
+                                        viewModel.replaceCurrentVideoWithEdited(tempVideoPath, updatedEditPlan)
+                                        viewModel.navigateTo(MainViewModel.Screen.Main)
+                                    },
+                                    onShare = { path ->
+                                        viewModel.shareGeneric(context)
+                                    },
+                                    onEditWithVoice = {
+                                        // Уже в редакторе, ничего не делаем
+                                    },
+                                    onCreateNew = {
+                                        viewModel.createNewVideo()
+                                        viewModel.navigateTo(MainViewModel.Screen.Main)
+                                    },
+                                    onExit = {
+                                        // При выходе из редактора восстанавливаем предыдущее состояние видео
+                                        val currentProcessingState = viewModel.processingState.value
+                                        val currentVideoPath = editingState.currentVideoPath
+                                        if (currentProcessingState is ProcessingState.Success && currentVideoPath != null) {
+                                            // Обновляем ProcessingState с путем к текущему видео
+                                            val editPlan = currentProcessingState.editPlan
+                                            if (editPlan != null) {
+                                                viewModel.replaceCurrentVideoWithEdited(
+                                                    currentVideoPath, 
+                                                    editPlan
+                                                )
+                                            }
+                                        }
+                                        viewModel.navigateTo(MainViewModel.Screen.Main)
+                                    },
+                                    mainViewModel = viewModel
+                                )
+                            } else {
+                                // Если нет сохраненного состояния, возвращаемся
+                                Log.e("videoeditorclipcraft", "VideoEditor: No saved state for processing, returning to Main")
+                                LaunchedEffect(Unit) {
+                                    viewModel.navigateTo(MainViewModel.Screen.Main)
+                                }
+                            }
+                            } else {
+                                // Если это не AI редактирование из редактора
+                                Log.e("videoeditorclipcraft", "VideoEditor: Processing but not from editor, returning to Main")
+                                LaunchedEffect(Unit) {
+                                    viewModel.navigateTo(MainViewModel.Screen.Main)
+                                }
+                            }
+                        }
                         else -> {
-                            // Если видео не готово, возвращаемся на главный экран
-                            Log.e("videoeditorclipcraft", "VideoEditor: ProcessingState is not Success (${processingState.javaClass.simpleName}), returning to Main")
+                            // Для других состояний возвращаемся на главный экран
+                            Log.e("videoeditorclipcraft", "VideoEditor: No valid state for editor, returning to Main")
                             LaunchedEffect(Unit) {
                                 viewModel.navigateTo(MainViewModel.Screen.Main)
                             }
                         }
                     }
+                }
+                else -> {
+                    // Если пользователь не авторизован, возвращаем на Intro
+                    LaunchedEffect(Unit) {
+                        viewModel.navigateTo(MainViewModel.Screen.Intro)
+                    }
+                }
+            }
+        }
+        MainViewModel.Screen.Subscription -> {
+            when (authState) {
+                is AuthState.Authenticated -> {
+                    SubscriptionScreen(
+                        onBackClick = { viewModel.navigateTo(MainViewModel.Screen.Profile) }
+                    )
                 }
                 else -> {
                     // Если пользователь не авторизован, возвращаем на Intro
@@ -286,7 +393,7 @@ fun LoadingScreen() {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             CircularProgressIndicator()
             Spacer(modifier = Modifier.height(16.dp))
-            Text("Загрузка...")
+            Text(stringResource(R.string.error_loading))
         }
     }
 }
@@ -295,11 +402,11 @@ fun LoadingScreen() {
 fun ErrorScreen(message: String, onRetry: () -> Unit) {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Ошибка", style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.error)
+            Text(stringResource(R.string.error_title), style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.error)
             Text(message, style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center, modifier = Modifier.padding(horizontal = 16.dp))
             Spacer(modifier = Modifier.height(8.dp))
             Button(onClick = onRetry) {
-                Text("Попробовать снова")
+                Text(stringResource(R.string.error_try_again))
             }
         }
     }

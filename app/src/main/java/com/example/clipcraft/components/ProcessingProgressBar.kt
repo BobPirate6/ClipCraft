@@ -16,6 +16,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.res.stringResource
+import com.example.clipcraft.R
 
 enum class ProcessingStep {
     ANALYZING,    // Видео обрабатываются
@@ -30,10 +32,10 @@ fun ProcessingProgressBar(
     modifier: Modifier = Modifier
 ) {
     val steps = listOf(
-        "Подготовка" to ProcessingStep.ANALYZING,
-        "Анализ" to ProcessingStep.SENDING,
-        "Монтаж" to ProcessingStep.PROCESSING,
-        "Готово" to ProcessingStep.FINALIZING
+        stringResource(R.string.processing_preparation) to ProcessingStep.ANALYZING,
+        stringResource(R.string.processing_analysis) to ProcessingStep.SENDING,
+        stringResource(R.string.processing_editing) to ProcessingStep.PROCESSING,
+        stringResource(R.string.processing_ready) to ProcessingStep.FINALIZING
     )
     
     Card(

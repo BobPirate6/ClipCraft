@@ -25,7 +25,21 @@
       "Bash(copy:*)",
       "Bash(grep:*)",
       "Bash(sed:*)",
-      "Bash(git merge:*)"
+      "Bash(git merge:*)",
+      "Bash(mkdir C:Usersneznamov-aAndroidStudioProjectsClipCraftkeystore)",
+      "Bash(mkdir keystore)",
+      "Bash(mkdir:*)",
+      "Bash(move \"app\\src\\main\\java\\com\\example\\clipcraft\\screens\\ProfileScreen.kt\" \"app\\src\\main\\java\\com\\example\\clipcraft\\ui\\screens\\ProfileScreen.kt\")",
+      "Bash(java:*)",
+      "Bash(.build_debug_with_java.bat)",
+      "Bash(export:*)",
+      "WebFetch(domain:developer.android.com)",
+      "Bash(.gradlew assembleDebug --no-daemon)",
+      "Bash(.\\build_debug_with_java.bat)",
+      "Bash(build_debug_with_java.bat)",
+      "Bash(dir:*)",
+      "Bash(git rm:*)",
+      "Bash(del nul)"
     ],
     "deny": []
   }

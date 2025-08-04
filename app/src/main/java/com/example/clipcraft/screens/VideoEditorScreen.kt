@@ -19,6 +19,7 @@ import androidx.compose.material.icons.filled.ZoomOutMap
 import androidx.compose.material.icons.filled.Help
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -26,6 +27,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.stringResource
 import androidx.compose.material.icons.filled.ZoomIn
 import androidx.compose.material.icons.filled.ZoomOut
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -33,6 +35,7 @@ import androidx.compose.foundation.clickable
 import androidx.core.net.toUri
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.clipcraft.R
 import com.example.clipcraft.components.*
 import com.example.clipcraft.models.*
 import com.example.clipcraft.ui.VideoEditorViewModel
@@ -43,7 +46,9 @@ import com.example.clipcraft.components.VideoEditorTutorial
 import com.example.clipcraft.components.OptimizedCompositeVideoPlayer
 import com.example.clipcraft.components.EditVideoDialog
 import com.example.clipcraft.utils.VideoPlayerPool
+import com.example.clipcraft.domain.model.VideoEditState
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -51,6 +56,7 @@ fun VideoEditorScreen(
     editPlan: EditPlan,
     videoAnalyses: Map<String, VideoAnalysis>,
     selectedVideos: List<SelectedVideo>,
+    currentVideoPath: String? = null,
     onSave: (String, EditPlan) -> Unit,
     onShare: (String) -> Unit,
     onEditWithVoice: () -> Unit,
@@ -64,16 +70,19 @@ fun VideoEditorScreen(
     
     val editorState by viewModel.editorState.collectAsStateWithLifecycle()
     val timelineState by viewModel.timelineState.collectAsStateWithLifecycle()
+    val renderingProgress by viewModel.renderingProgress.collectAsStateWithLifecycle()
     
     var showResetDialog by remember { mutableStateOf(false) }
     var showSaveProgress by remember { mutableStateOf(false) }
     var saveProgress by remember { mutableStateOf(0f) }
+    var showRenderingProgress by remember { mutableStateOf(false) }
+    var isDisposing by remember { mutableStateOf(false) }
     
-    // Tutorial state - показываем при каждом открытии редактора
+    // Tutorial state - показываем только при первом открытии
     val sharedPrefs = context.getSharedPreferences("clipcraft_prefs", Context.MODE_PRIVATE)
     val hasShownVideoEditorTutorial = sharedPrefs.getBoolean("video_editor_tutorial_shown", false)
     val isManualMode = editPlan.finalEdit.isEmpty() && selectedVideos.isNotEmpty()
-    var showTutorial by remember { mutableStateOf(true) } // Всегда показываем туториал
+    var showTutorial by remember { mutableStateOf(!hasShownVideoEditorTutorial) } // Показываем только если еще не показывали
     
     // Debug logging for tutorial
     LaunchedEffect(Unit) {
@@ -87,6 +96,25 @@ fun VideoEditorScreen(
     
     // Состояние для показа индикатора автосохранения
     var showAutoSaveIndicator by remember { mutableStateOf(false) }
+    
+    // Автосохранение каждую минуту
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(60000) // 60 секунд
+            if (timelineState.segments.isNotEmpty() && !editorState.isProcessing && !showSaveProgress) {
+                try {
+                    showAutoSaveIndicator = true
+                    // Сохраняем состояние редактора
+                    viewModel.autoSave()
+                    delay(2000) // Показываем индикатор 2 секунды
+                    showAutoSaveIndicator = false
+                } catch (e: Exception) {
+                    Log.e("VideoEditorScreen", "Auto-save failed", e)
+                    showAutoSaveIndicator = false
+                }
+            }
+        }
+    }
     
     // Инициализация редактора
     LaunchedEffect(editPlan) {
@@ -109,10 +137,50 @@ fun VideoEditorScreen(
             Log.d("videoeditorclipcraft", "  uri: ${video.uri}")
         }
         
-        viewModel.initializeWithEditPlan(editPlan, videoAnalyses, selectedVideos)
+        // Инициализируем оркестратор сессии
+        val videoPath = currentVideoPath ?: editorState.currentVideoPath
+        if (editPlan.finalEdit.isNotEmpty()) {
+            // AI-processed video
+            viewModel.initializeOrchestratorSession(
+                editPlan = editPlan,
+                videoAnalyses = videoAnalyses,
+                selectedVideos = selectedVideos,
+                currentVideoPath = videoPath,
+                aiCommand = mainViewModel.userCommand.value // Pass the original command
+            )
+        } else if (selectedVideos.isNotEmpty()) {
+            // Manual editing from selected videos
+            viewModel.initializeOrchestratorSession(
+                selectedVideos = selectedVideos
+            )
+        }
+        
+        viewModel.initializeWithEditPlan(editPlan, videoAnalyses, selectedVideos, currentVideoPath)
         
         // Обновляем состояние для отображения восстановленных сегментов
         viewModel.refreshEditorState()
+        
+        // Проверяем обновления от голосового редактирования
+        viewModel.checkForPendingUpdates()
+    }
+    
+    // Подписываемся на состояние обработки для обновления после AI редактирования
+    val processingState by mainViewModel.processingState.collectAsStateWithLifecycle()
+    val editingState by mainViewModel.editingState.collectAsStateWithLifecycle()
+    
+    LaunchedEffect(processingState, editingState.isVoiceEditingFromEditor) {
+        if (processingState is ProcessingState.Success && 
+            editingState.isVoiceEditingFromEditor) {
+            Log.d("VideoEditorScreen", "AI editing completed, checking for updates")
+            // Даем время на применение обновлений
+            delay(1000) // Увеличиваем задержку
+            viewModel.checkForPendingUpdates()
+            // Сбрасываем флаг после обработки
+            delay(500) // Даем больше времени
+            mainViewModel.updateEditingState(
+                editingState.copy(isVoiceEditingFromEditor = false)
+            )
+        }
     }
     
     // Лаунчер для выбора видео
@@ -156,35 +224,39 @@ fun VideoEditorScreen(
         TopAppBar(
             title = { 
                 Text(
-                    "Редактор видео",
+                    stringResource(R.string.nav_video_editor),
                     style = MaterialTheme.typography.titleLarge
                 )
             },
             navigationIcon = {
                 IconButton(onClick = {
-                    // Автосохранение при выходе, если есть изменения
-                    if (timelineState.segments.isNotEmpty()) {
-                        showAutoSaveIndicator = true
-                        coroutineScope.launch {
-                            try {
-                                Log.d("VideoEditorScreen", "Auto-saving on exit")
-                                val tempPath = viewModel.exportToTempFile { progress ->
-                                    // Игнорируем прогресс при автосохранении
-                                }
-                                val updatedEditPlan = viewModel.getUpdatedEditPlan()
-                                onSave(tempPath, updatedEditPlan)
-                            } catch (e: Exception) {
-                                Log.e("VideoEditorScreen", "Failed to auto-save", e)
-                                // Все равно выходим
-                                showAutoSaveIndicator = false
-                                onExit()
+                    // Сохраняем текущее состояние и выходим
+                    showSaveProgress = true
+                    
+                    coroutineScope.launch {
+                        try {
+                            // Рендерим и сохраняем текущее состояние
+                            val renderedPath = viewModel.applyCurrentState { progress ->
+                                saveProgress = progress
                             }
+                            showSaveProgress = false
+                            
+                            // Получаем обновленный план
+                            val updatedEditPlan = viewModel.getUpdatedEditPlan()
+                            
+                            // Передаем результат в главный экран
+                            // Добавляем небольшую задержку перед навигацией чтобы дать время на очистку ресурсов
+                            delay(100)
+                            onSave(renderedPath, updatedEditPlan)
+                        } catch (e: Exception) {
+                            showSaveProgress = false
+                            Log.e("VideoEditorScreen", "Failed to save video", e)
+                            // При ошибке просто выходим
+                            onExit()
                         }
-                    } else {
-                        onExit()
                     }
                 }) {
-                    Icon(Icons.Default.ArrowBack, contentDescription = "Назад")
+                    Icon(Icons.Default.ArrowBack, contentDescription = stringResource(R.string.action_back))
                 }
             },
             actions = {
@@ -192,7 +264,7 @@ fun VideoEditorScreen(
                 IconButton(onClick = { 
                     showTutorial = true
                 }) {
-                    Icon(Icons.Default.Help, contentDescription = "Помощь")
+                    Icon(Icons.Default.Help, contentDescription = stringResource(R.string.nav_help))
                 }
             },
             colors = TopAppBarDefaults.topAppBarColors(
@@ -208,7 +280,7 @@ fun VideoEditorScreen(
                 .background(Color.Black)
         ) {
             // Используем OptimizedCompositeVideoPlayer для бесшовного воспроизведения
-            if (timelineState.segments.isNotEmpty()) {
+            if (timelineState.segments.isNotEmpty() && !isDisposing) {
                 OptimizedCompositeVideoPlayer(
                     segments = timelineState.segments,
                     currentPosition = timelineState.currentPosition,
@@ -237,10 +309,59 @@ fun VideoEditorScreen(
             }
             
             // Индикатор обработки
-            if (editorState.isProcessing) {
-                CircularProgressIndicator(
-                    modifier = Modifier.align(Alignment.Center)
-                )
+            if (editorState.isProcessing || 
+                (processingState is ProcessingState.Processing && editingState.isVoiceEditingFromEditor)) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.5f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        CircularProgressIndicator(
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            text = stringResource(R.string.processing_editing),
+                            color = Color.White,
+                            style = MaterialTheme.typography.bodyLarge
+                        )
+                    }
+                }
+            }
+            
+            // Индикатор автосохранения
+            if (showAutoSaveIndicator) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(16.dp)
+                        .background(
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            shape = MaterialTheme.shapes.small
+                        )
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Save,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                        Text(
+                            text = stringResource(R.string.autosaving),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+                }
             }
         }
         
@@ -259,7 +380,7 @@ fun VideoEditorScreen(
             ) {
                 Icon(
                     Icons.Default.RestartAlt,
-                    contentDescription = "Отменить все",
+                    contentDescription = stringResource(R.string.editor_undo_all),
                     tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f)
                 )
             }
@@ -274,7 +395,7 @@ fun VideoEditorScreen(
             ) {
                 Icon(
                     Icons.Default.Undo,
-                    contentDescription = "Отменить",
+                    contentDescription = stringResource(R.string.editor_undo),
                     tint = if (editorState.editHistory.canUndo) 
                         MaterialTheme.colorScheme.primary 
                     else 
@@ -294,7 +415,7 @@ fun VideoEditorScreen(
             ) {
                 Icon(
                     imageVector = if (timelineState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                    contentDescription = if (timelineState.isPlaying) "Пауза" else "Воспроизвести",
+                    contentDescription = if (timelineState.isPlaying) "Pause" else "Play",
                     tint = Color.White,
                     modifier = Modifier.size(28.dp)
                 )
@@ -312,7 +433,7 @@ fun VideoEditorScreen(
             ) {
                 Icon(
                     Icons.Default.Add,
-                    contentDescription = "Добавить видео",
+                    contentDescription = stringResource(R.string.editor_add_video),
                     tint = MaterialTheme.colorScheme.onPrimaryContainer,
                     modifier = Modifier.size(24.dp)
                 )
@@ -328,7 +449,7 @@ fun VideoEditorScreen(
             ) {
                 Icon(
                     Icons.Default.Redo,
-                    contentDescription = "Повторить",
+                    contentDescription = stringResource(R.string.editor_redo),
                     tint = if (editorState.editHistory.canRedo) 
                         MaterialTheme.colorScheme.primary 
                     else 
@@ -350,7 +471,7 @@ fun VideoEditorScreen(
             ) {
                 Icon(
                     Icons.Default.Delete,
-                    contentDescription = "Удалить сегмент",
+                    contentDescription = stringResource(R.string.editor_delete_segment),
                     tint = if (timelineState.selectedSegmentId != null)
                         MaterialTheme.colorScheme.error
                     else
@@ -367,7 +488,7 @@ fun VideoEditorScreen(
             ) {
                 Icon(
                     Icons.Default.ZoomOutMap,
-                    contentDescription = "Сбросить масштаб (100%)",
+                    contentDescription = stringResource(R.string.editor_reset_zoom),
                     tint = MaterialTheme.colorScheme.primary
                 )
             }
@@ -418,7 +539,7 @@ fun VideoEditorScreen(
             }
         )
         
-        // Нижняя панель с кнопками
+        // Нижняя панель с кнопкой редактирования голосом
         Card(
             modifier = Modifier
                 .fillMaxWidth()
@@ -431,106 +552,21 @@ fun VideoEditorScreen(
                 containerColor = MaterialTheme.colorScheme.surface
             )
         ) {
-            Column(
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.Center
             ) {
-                // Первый ряд кнопок
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center
+                // Редактировать голосом
+                Button(
+                    onClick = { showVoiceEditDialog = true },
+                    modifier = Modifier.widthIn(min = 200.dp),
+                    enabled = !editorState.isProcessing && !editorState.isSaving
                 ) {
-                    // Сохранить
-                    Button(
-                        onClick = {
-                            showSaveProgress = true
-                            
-                            coroutineScope.launch {
-                                try {
-                                    // Экспортируем во временный файл
-                                    val tempPath = viewModel.exportToTempFile { progress ->
-                                        saveProgress = progress
-                                    }
-                                    showSaveProgress = false
-                                    
-                                    // Получаем обновленный план
-                                    val updatedEditPlan = viewModel.getUpdatedEditPlan()
-                                    
-                                    // Передаем путь к временному файлу и обновленный план
-                                    onSave(tempPath, updatedEditPlan)
-                                } catch (e: Exception) {
-                                    showSaveProgress = false
-                                    Log.e("VideoEditorScreen", "Failed to save video", e)
-                                }
-                            }
-                        },
-                        modifier = Modifier.widthIn(min = 200.dp),
-                        enabled = !editorState.isProcessing && !editorState.isSaving
-                    ) {
-                        Icon(Icons.Default.Save, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Сохранить")
-                    }
-                }
-                
-                // Второй ряд кнопок
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    // Редактировать голосом
-                    OutlinedButton(
-                        onClick = { showVoiceEditDialog = true },
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Icon(Icons.Default.Mic, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Голосом")
-                    }
-                    
-                    // Создать новое
-                    OutlinedButton(
-                        onClick = onCreateNew,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Icon(Icons.Default.Add, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Новое")
-                    }
-                    
-                    // Выйти
-                    OutlinedButton(
-                        onClick = {
-                            // Автосохранение при выходе, если есть изменения
-                            if (timelineState.segments.isNotEmpty()) {
-                                showAutoSaveIndicator = true
-                                coroutineScope.launch {
-                                    try {
-                                        Log.d("VideoEditorScreen", "Auto-saving on exit (button)")
-                                        val tempPath = viewModel.exportToTempFile { progress ->
-                                            // Игнорируем прогресс при автосохранении
-                                        }
-                                        val updatedEditPlan = viewModel.getUpdatedEditPlan()
-                                        onSave(tempPath, updatedEditPlan)
-                                    } catch (e: Exception) {
-                                        Log.e("VideoEditorScreen", "Failed to auto-save", e)
-                                        // Все равно выходим
-                                        showAutoSaveIndicator = false
-                                        onExit()
-                                    }
-                                }
-                            } else {
-                                onExit()
-                            }
-                        },
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Icon(Icons.Default.ExitToApp, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Выйти")
-                    }
+                    Icon(Icons.Default.Mic, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(stringResource(R.string.editor_voice_button))
                 }
             }
         }
@@ -540,9 +576,9 @@ fun VideoEditorScreen(
     if (showResetDialog) {
         AlertDialog(
             onDismissRequest = { showResetDialog = false },
-            title = { Text("Сбросить изменения?") },
+            title = { Text(stringResource(R.string.editor_reset_dialog_title)) },
             text = { 
-                Text("Все изменения будут отменены и видео вернется к исходному состоянию.")
+                Text(stringResource(R.string.editor_reset_dialog_message))
             },
             confirmButton = {
                 TextButton(
@@ -551,12 +587,12 @@ fun VideoEditorScreen(
                         showResetDialog = false
                     }
                 ) {
-                    Text("Сбросить", color = MaterialTheme.colorScheme.error)
+                    Text(stringResource(R.string.editor_reset_action), color = MaterialTheme.colorScheme.error)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showResetDialog = false }) {
-                    Text("Отмена")
+                    Text(stringResource(R.string.action_cancel))
                 }
             }
         )
@@ -565,8 +601,13 @@ fun VideoEditorScreen(
     // Диалог прогресса сохранения
     if (showSaveProgress) {
         AlertDialog(
-            onDismissRequest = { },
-            title = { Text("Сохранение видео") },
+            onDismissRequest = { 
+                // Отмена рендеринга
+                viewModel.cancelRendering()
+                showSaveProgress = false
+                // Остаемся в редакторе
+            },
+            title = { Text(stringResource(R.string.editor_saving_video)) },
             text = {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -576,6 +617,12 @@ fun VideoEditorScreen(
                     Text(
                         "${(saveProgress * 100).toInt()}%",
                         style = MaterialTheme.typography.bodyLarge
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        stringResource(R.string.tap_outside_to_cancel),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             },
@@ -605,7 +652,8 @@ fun VideoEditorScreen(
         isVisible = showTutorial,
         onDismiss = { 
             showTutorial = false
-            // Не сохраняем состояние, чтобы туториал показывался каждый раз
+            // Сохраняем флаг, что туториал был показан
+            sharedPrefs.edit().putBoolean("video_editor_tutorial_shown", true).apply()
         }
     )
     
@@ -614,31 +662,59 @@ fun VideoEditorScreen(
         Log.d("VideoEditorTutorial", "showTutorial is true, showing tutorial component")
     }
     
-    // Индикатор автосохранения
-    if (showAutoSaveIndicator) {
+    // Освобождаем неиспользуемые плееры при выходе
+    DisposableEffect(Unit) {
+        onDispose {
+            isDisposing = true
+            // Освобождаем плееры с задержкой чтобы избежать DeadObjectException
+            try {
+                VideoPlayerPool.releasePlayer("composite_player")
+                VideoPlayerPool.releaseUnusedPlayers()
+            } catch (e: Exception) {
+                Log.e("VideoEditorScreen", "Error releasing players", e)
+            }
+        }
+    }
+    
+    // Диалог прогресса рендеринга видео
+    if (showRenderingProgress || renderingProgress.progress > 0f) {
         AlertDialog(
-            onDismissRequest = { },
-            title = { Text("Сохранение видео...") },
+            onDismissRequest = { 
+                // Не позволяем закрыть диалог во время рендеринга
+            },
+            title = { Text(stringResource(R.string.processing_video)) },
             text = {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    CircularProgressIndicator()
+                    LinearProgressIndicator(
+                        progress = renderingProgress.progress,
+                        modifier = Modifier.fillMaxWidth()
+                    )
                     Text(
-                        "Пожалуйста, подождите",
-                        style = MaterialTheme.typography.bodyMedium
+                        "${(renderingProgress.progress * 100).toInt()}%",
+                        style = MaterialTheme.typography.bodyLarge
+                    )
+                    if (renderingProgress.totalSegments > 0) {
+                        Text(
+                            stringResource(
+                                R.string.processing_segment_format,
+                                renderingProgress.currentSegment,
+                                renderingProgress.totalSegments
+                            ),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Text(
+                        stringResource(R.string.please_wait_processing),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             },
             confirmButton = { }
         )
-    }
-    
-    // Освобождаем неиспользуемые плееры при выходе
-    DisposableEffect(Unit) {
-        onDispose {
-            VideoPlayerPool.releaseUnusedPlayers()
-        }
     }
 }

@@ -1,3 +1,250 @@
 <resources>
+    <!-- App Name -->
     <string name="app_name">ClipCraft</string>
+    
+    <!-- Common Actions -->
+    <string name="action_save">Save</string>
+    <string name="action_apply">Apply</string>
+    <string name="action_cancel">Cancel</string>
+    <string name="action_back">Back</string>
+    <string name="action_close">Close</string>
+    <string name="action_share">Share</string>
+    <string name="action_delete">Delete</string>
+    <string name="action_new">New</string>
+    <string name="action_exit">Exit</string>
+    <string name="action_send">Send</string>
+    <string name="action_done">Done (%1$d)</string>
+    <string name="action_understood">Understood</string>
+    <string name="action_later">Later</string>
+    <string name="action_fill_form">Fill out form</string>
+    <string name="action_grant_access">Grant access</string>
+    <string name="action_continue">Continue</string>
+    <string name="action_start">Start</string>
+    
+    <!-- Navigation -->
+    <string name="nav_profile">Profile</string>
+    <string name="nav_video_editor">Video editor</string>
+    <string name="nav_gallery">Gallery</string>
+    <string name="nav_help">Help</string>
+    
+    <!-- Video Editor Screen -->
+    <string name="editor_voice_button">AI Edit</string>
+    <string name="editor_pause">Pause</string>
+    <string name="editor_play">Play</string>
+    <string name="editor_please_wait">Please wait</string>
+    <string name="editor_reset_dialog_title">Reset changes?</string>
+    <string name="editor_reset_dialog_message">All changes will be canceled and video will return to original state.</string>
+    <string name="editor_reset_action">Reset</string>
+    <string name="editor_saving_video">Applying changes</string>
+    <string name="editor_saving_progress">Applying changes...</string>
+    <string name="editor_undo_all">Undo all</string>
+    <string name="editor_undo">Undo</string>
+    <string name="editor_redo">Redo</string>
+    <string name="editor_add_video">Add video</string>
+    <string name="editor_delete_segment">Delete segment</string>
+    <string name="editor_reset_zoom">Reset zoom (100%)</string>
+    <string name="editor_zoom_in">Zoom in</string>
+    <string name="editor_zoom_out">Zoom out</string>
+    <string name="editor_show_all_segments">Show all segments</string>
+    <string name="editor_trim_left">Trim left</string>
+    <string name="editor_trim_right">Trim right</string>
+    <string name="editor_drag">Drag</string>
+    
+    <!-- Main Screen -->
+    <string name="main_start_processing">Start processing</string>
+    <string name="main_voice_input">Voice input</string>
+    <string name="main_cancel_editing">Cancel editing</string>
+    <string name="main_error_videos_not_found">Error: source videos not found</string>
+    <string name="main_select_video_instruction">select video</string>
+    <string name="main_add_remove_video_instruction">add or remove video</string>
+    <string name="main_edit_manually">Edit manually</string>
+    
+    <!-- Profile Screen -->
+    <string name="profile_user_not_found">User not found</string>
+    <string name="profile_language">Language</string>
+    <string name="profile_language_english">English</string>
+    <string name="profile_language_russian">Русский</string>
+    <string name="profile_restart_tutorial">Start tutorial again</string>
+    <string name="profile_sign_out">Sign out</string>
+    <string name="profile_your_name">Your name</string>
+    <string name="profile_email_format">Email: %1$s</string>
+    <string name="profile_credits_format">Credits: %1$d</string>
+    <string name="profile_save_name">Save name</string>
+    <string name="profile_open_subscriptions">Open subscriptions</string>
+    <string name="profile_open_form">Open form</string>
+    <string name="profile_settings">Settings</string>
+    <string name="profile_tutorial_mode">Tutorial mode</string>
+    <string name="profile_tutorial_description">Show hints when using the app</string>
+    <string name="profile_language_restart_required">App restart required for language change to take effect</string>
+    <string name="profile_edit_history">Edit History</string>
+    <string name="profile_history_empty">Your history is empty</string>
+    <string name="profile_history_count">%1$d edits</string>
+    <string name="profile_subscription_management">Subscription Management</string>
+    <string name="profile_subscription_description">Plans, credits and promo codes</string>
+    <string name="profile_feedback_form">Feedback Form</string>
+    <string name="profile_feedback_description">Help us improve the app</string>
+    
+    <!-- Intro Screen -->
+    <string name="intro_email">Email</string>
+    <string name="intro_password">Password</string>
+    <string name="intro_password_recovery">Password recovery</string>
+    
+    <!-- Main Screen Additional -->
+    <string name="main_command_placeholder">For example: dynamic video with motorcycle</string>
+    <string name="main_editor_label">Editor</string>
+    <string name="main_credits_format">Credits: %1$d</string>
+    
+    <!-- Subscription Screen -->
+    <string name="subscription_title">Subscription Management</string>
+    <string name="subscription_promo_code_hint">Enter promo code</string>
+    <string name="subscription_current_plan">Current Plan: %1$s</string>
+    <string name="subscription_credits_remaining">Credits: %1$d</string>
+    <string name="subscription_choose_plan">Choose Your Plan</string>
+    <string name="subscription_top_up_credits">Top Up Credits</string>
+    <string name="subscription_redeem_promo">Redeem Promo Code</string>
+    <string name="subscription_how_credits_work">How credits work:</string>
+    <string name="subscription_credits_explanation">Each video you create uses 1 credit. Credits never expire. Purchase more anytime!</string>
+    <string name="subscription_popular_badge">POPULAR</string>
+    <string name="subscription_credits_count">%1$d credits</string>
+    
+    <!-- Gallery -->
+    <string name="gallery_select_video">Select video</string>
+    <string name="gallery_limit_reached">Limit reached</string>
+    <string name="gallery_limit_message">Can select no more than 20 videos for one edit</string>
+    
+    <!-- Feedback Dialog -->
+    <string name="feedback_dialog_title">Share your impressions</string>
+    <string name="feedback_dialog_message">You have already created 3 videos! How do you like our app? Your feedback will help us improve.</string>
+    <string name="feedback_fill_short">Fill out</string>
+    
+    <!-- Edit Video Dialog -->
+    <string name="edit_dialog_hint">Example: remove first 2 seconds, add more dynamic transitions</string>
+    <string name="edit_dialog_no_pauses">Without pauses</string>
+    <string name="edit_dialog_title">What to change?</string>
+    <string name="edit_dialog_placeholder">For example: remove pauses and add dynamic transitions</string>
+    <string name="edit_video_title">Edit video</string>
+    <string name="edit_video_current_command">Current command:</string>
+    <string name="edit_video_show_plan">Show editing plan</string>
+    <string name="edit_video_hide_plan">Hide plan</string>
+    <string name="edit_video_voice_prompt">Tell me what to change in the video</string>
+    
+    <!-- Processing Steps -->
+    <string name="processing_preparation">Preparation</string>
+    <string name="processing_analysis">Analysis</string>
+    <string name="processing_editing">Editing</string>
+    <string name="processing_ready">Ready</string>
+    
+    <!-- Processing Messages -->
+    <string name="processing_edit_mode">🔄 Edit mode</string>
+    <string name="processing_analyzing_videos">📹 Analyzing videos...</string>
+    <string name="processing_video_progress">🎬 Processing video %1$d of %2$d</string>
+    <string name="processing_video_analyzed">✅ Video %1$d analyzed</string>
+    <string name="processing_speech_found">💬 Speech found in video %1$d: "%2$s"</string>
+    <string name="processing_all_ready">📊 All videos ready for editing</string>
+    <string name="processing_analyzing_content">🔍 Analyzing content...</string>
+    <string name="processing_analysis_complete">✅ Analysis complete</string>
+    <string name="processing_creating_plan">🤖 Creating editing plan...</string>
+    <string name="processing_plan_ready">📋 Editing plan ready!</string>
+    <string name="processing_plan_summary">📝 %1$s</string>
+    <string name="processing_plan_notes">💭 %1$s</string>
+    <string name="processing_starting_edit">🎬 Starting video editing...</string>
+    <string name="processing_video_ready">🎉 Video is ready!</string>
+    
+    <!-- Video Editor Additional -->
+    <string name="tap_outside_to_cancel">Tap outside to cancel</string>
+    <string name="autosaving">Auto-saving...</string>
+    <string name="processing_video">Processing video</string>
+    <string name="processing_segment_format">Segment %1$d of %2$d</string>
+    <string name="please_wait_processing">Please wait while we process your video...</string>
+    
+    <!-- Video Editor Tutorial -->
+    <string name="tutorial_editor_welcome">Welcome to editor</string>
+    <string name="tutorial_editor_intro">Here you can manually edit your video.</string>
+    <string name="tutorial_skip">Skip</string>
+    <string name="tutorial_timeline_title">Timeline</string>
+    <string name="tutorial_timeline_desc">Bottom timeline with video segments. Click on segment to select it (blue frame will appear)</string>
+    <string name="tutorial_zoom_title">Zoom controls</string>
+    <string name="tutorial_zoom_desc">Use + and - buttons for zoom. Button with squares shows all segments on screen</string>
+    <string name="tutorial_trim_title">Video trimming</string>
+    <string name="tutorial_trim_desc">After selecting segment white handles with arrows appear at edges. Move them to trim segment</string>
+    <string name="tutorial_reorder_title">Reordering</string>
+    <string name="tutorial_reorder_desc">To move segment hold and drag it.</string>
+    <string name="tutorial_add_remove_title">Adding and removing</string>
+    <string name="tutorial_add_remove_desc">Use \'+\' button to add new video. To delete, select segment and press trash button</string>
+    <string name="tutorial_undo_title">Undo actions</string>
+    <string name="tutorial_undo_desc">Use undo/redo arrows to return to previous states. Red reset button returns to original state</string>
+    <string name="tutorial_preview_title">Preview</string>
+    <string name="tutorial_preview_desc">Press play button for preview.</string>
+    <string name="tutorial_save_title">Saving</string>
+    <string name="tutorial_save_desc">Save your video.</string>
+    
+    <!-- Voice Edit Tutorial -->
+    <string name="tutorial_voice_title">Voice editing</string>
+    <string name="tutorial_voice_description">Use voice commands to change your edit:</string>
+    <string name="tutorial_voice_example1">Remove the first 5 seconds</string>
+    <string name="tutorial_voice_example2">Swap the first and second segments</string>
+    <string name="tutorial_voice_example3">Keep only the speaking parts</string>
+    <string name="tutorial_voice_example4">Speed up the second segment 2x</string>
+    <string name="tutorial_voice_ai_note">AI will understand your command and make the appropriate changes to your edit.</string>
+    <string name="tutorial_voice_button_ok">Got it</string>
+    
+    <!-- Toast Messages -->
+    <string name="toast_video_saved">Video saved to gallery</string>
+    <string name="toast_video_already_saved">Video already in gallery</string>
+    <string name="toast_no_video_to_save">No video to save</string>
+    <string name="toast_save_error">Error saving video: %1$s</string>
+    
+    <!-- Error Messages -->
+    <string name="error_loading">Loading...</string>
+    <string name="error_title">Error</string>
+    <string name="error_try_again">Try again</string>
+    
+    <!-- Speech Bubbles -->
+    <string name="speech_bubble_video_ready">🎉 Video is ready!</string>
+    <string name="speech_bubble_feedback">📝 While your video is processing, you can share your impressions of ClipCraft!</string>
+    <string name="speech_bubble_speech_found">💬 Speech found in video %1$d: \"%2$s\"</string>
+    <string name="speech_bubble_tip_1">💡 Tip: For best results, use videos with clear sound</string>
+    <string name="speech_bubble_tip_2">🎯 Tip: The more accurate your description, the better the result</string>
+    <string name="speech_bubble_tip_3">🚀 Tip: Try short commands like \"make it dynamic\" or \"add energy\"</string>
+    <string name="speech_bubble_tip_4">📱 Tip: You can select up to 20 videos for one edit</string>
+    <string name="speech_bubble_tip_5">🎬 Tip: Videos with speech will be automatically transcribed</string>
+    <string name="speech_bubble_tip_6">✨ Tip: Use voice command for quick editing</string>
+    <string name="speech_bubble_tip_7">🔄 Tip: You can always undo changes in the editor</string>
+    <string name="speech_bubble_tip_8">📌 Tip: Save your favorite edits for future use</string>
+    <string name="speech_bubble_tip_9">⚙️ Tutorial can be disabled in settings</string>
+    <string name="speech_bubble_tip_10">💳 Out of credits? Top up in subscription management</string>
+    <string name="speech_bubble_tip_11">🌐 Change language in profile settings</string>
+    <string name="speech_bubble_tip_12">📤 You can share your video directly from the app</string>
+    <string name="speech_bubble_tip_13">🎨 Manual editor allows precise control over your edits</string>
+    <string name="speech_bubble_tip_14">⏱️ Processing time depends on video length and count</string>
+    <string name="speech_bubble_tip_15">🔊 Make sure your videos have good audio quality</string>
+    <string name="speech_bubble_progress_1">✨ Just a bit more...</string>
+    <string name="speech_bubble_progress_2">🎬 Adding final touches...</string>
+    <string name="speech_bubble_progress_3">🎨 Checking composition...</string>
+    <string name="speech_bubble_progress_4">⚡ Work in progress!</string>
+    <string name="speech_bubble_progress_5">🎯 Almost done...</string>
+    <string name="speech_bubble_progress_6">🔧 Applying editing magic...</string>
+    <string name="speech_bubble_progress_7">🎪 Creating wonders...</string>
+    <string name="speech_bubble_progress_8">🚀 Processing frames...</string>
+    <string name="speech_bubble_progress_9">🎭 Adding final details...</string>
+    <string name="speech_bubble_progress_10">🌟 Polishing the result...</string>
+    <string name="speech_bubble_progress_11">🎵 Synchronizing elements...</string>
+    <string name="speech_bubble_progress_12">📽️ Merging fragments...</string>
+    <string name="speech_bubble_progress_13">🖼️ Optimizing quality...</string>
+    <string name="speech_bubble_progress_14">💫 Everything goes according to plan!</string>
+    <string name="speech_bubble_progress_15">🎉 You\'ll see the result soon!</string>
+    
+    <!-- Processing Error Messages -->
+    <string name="error_video_analysis_not_found">Analysis for source video not found</string>
+    <string name="error_cannot_extract_frames">Cannot extract frames from video for analysis</string>
+    <string name="error_cannot_analyze_video">Failed to analyze video. Check your internet connection.</string>
+    <string name="error_empty_edit_plan">Failed to create editing plan</string>
+    <string name="error_processing_later">Processing error. Please try again later.</string>
+    <string name="error_feature_unavailable">Feature unavailable. Check settings.</string>
+    <string name="error_invalid_parameters">Invalid processing parameters.</string>
+    <string name="error_network">Network error: %1$s</string>
+    <string name="error_no_internet">No internet connection</string>
+    <string name="error_timeout">Video processing timeout exceeded</string>
+    <string name="error_unknown">Unknown error</string>
+    <string name="error_server_unavailable">Main server unavailable. Status: %1$s</string>
 </resources>

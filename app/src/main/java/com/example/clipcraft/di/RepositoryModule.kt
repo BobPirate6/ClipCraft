@@ -3,6 +3,7 @@ package com.example.clipcraft.di
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.work.WorkManager
+import com.example.clipcraft.data.repository.SubscriptionRepository
 import com.example.clipcraft.domain.repository.AuthRepository
 import com.example.clipcraft.domain.repository.EditHistoryRepository
 import com.example.clipcraft.domain.repository.GalleryRepository
@@ -11,6 +12,8 @@ import com.example.clipcraft.services.AuthService
 import com.example.clipcraft.services.GalleryLoaderService
 import com.example.clipcraft.services.VideoAnalyzerService
 import com.example.clipcraft.services.VideoEditorService
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
 import com.google.gson.Gson
 import dagger.Module
 import dagger.Provides
@@ -70,5 +73,14 @@ object RepositoryModule {
         @ApplicationContext context: Context
     ): VideoEditorService {
         return VideoEditorService(context)
+    }
+    
+    @Provides
+    @Singleton
+    fun provideSubscriptionRepository(
+        firestore: FirebaseFirestore,
+        auth: FirebaseAuth
+    ): SubscriptionRepository {
+        return SubscriptionRepository(firestore, auth)
     }
 }

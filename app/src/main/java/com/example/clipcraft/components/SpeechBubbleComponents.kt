@@ -17,8 +17,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.res.stringResource
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import android.content.Context
+import com.example.clipcraft.R
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -28,7 +31,11 @@ data class SpeechBubbleMessage(
     val text: String,
     val type: MessageType = MessageType.SYSTEM,
     val timestamp: Long = System.currentTimeMillis(),
-    val action: (() -> Unit)? = null
+    val action: (() -> Unit)? = null,
+    val progress: Float? = null, // Progress 0..1
+    val thumbnails: List<String>? = null, // Base64 encoded frame previews
+    val currentVideo: Int? = null,
+    val totalVideos: Int? = null
 )
 
 enum class MessageType {
@@ -36,9 +43,10 @@ enum class MessageType {
     TRANSCRIPTION, // Транскрибированная речь
     PLAN,          // План монтажа
     TIP,           // Советы
-    PROGRESS,      // Сообщения о прогрессе
+    PROGRESS,      // Сообщения о прогрессе (филлеры)
     SUCCESS,       // Сообщение об успешном завершении
-    FEEDBACK       // Предложение обратной связи
+    FEEDBACK,      // Предложение обратной связи
+    VIDEO_PROGRESS // Прогресс обработки видео с прогресс-баром
 }
 
 @Composable
@@ -97,6 +105,7 @@ fun SpeechBubble(
         MessageType.PROGRESS -> MaterialTheme.colorScheme.secondaryContainer
         MessageType.SUCCESS -> MaterialTheme.colorScheme.primaryContainer
         MessageType.FEEDBACK -> MaterialTheme.colorScheme.tertiaryContainer
+        MessageType.VIDEO_PROGRESS -> MaterialTheme.colorScheme.secondaryContainer
     }
 
     val contentColor = when (message.type) {
@@ -107,6 +116,7 @@ fun SpeechBubble(
         MessageType.PROGRESS -> MaterialTheme.colorScheme.onSecondaryContainer
         MessageType.SUCCESS -> MaterialTheme.colorScheme.onPrimaryContainer
         MessageType.FEEDBACK -> MaterialTheme.colorScheme.onTertiaryContainer
+        MessageType.VIDEO_PROGRESS -> MaterialTheme.colorScheme.onSecondaryContainer
     }
 
     Row(
@@ -152,6 +162,42 @@ fun SpeechBubble(
                     fontSize = if (message.type == MessageType.TIP) 13.sp else 14.sp
                 )
                 
+                // Прогресс бар для VIDEO_PROGRESS
+                if (message.type == MessageType.VIDEO_PROGRESS && message.progress != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    // Прогресс бар
+                    LinearProgressIndicator(
+                        progress = message.progress,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(4.dp)
+                            .clip(RoundedCornerShape(2.dp)),
+                        color = MaterialTheme.colorScheme.primary,
+                        trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
+                    )
+                    
+                    // Превью кадров, если есть
+                    if (!message.thumbnails.isNullOrEmpty()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            message.thumbnails.take(3).forEach { base64Thumbnail ->
+                                // Здесь можно отобразить превью из base64
+                                // Пока показываем заглушку
+                                Box(
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                                )
+                            }
+                        }
+                    }
+                }
+                
                 // Кнопка для feedback сообщений
                 if (message.type == MessageType.FEEDBACK && message.action != null) {
                     Spacer(modifier = Modifier.height(8.dp))
@@ -164,7 +210,7 @@ fun SpeechBubble(
                         )
                     ) {
                         Text(
-                            text = "Заполнить форму",
+                            text = stringResource(R.string.action_fill_form),
                             style = MaterialTheme.typography.labelMedium
                         )
                     }
@@ -185,40 +231,38 @@ fun SpeechBubble(
 }
 
 // Фразы для заполнения пауз
-fun getRandomProgressMessage(): String {
+fun getRandomProgressMessage(context: Context): String {
     val messages = listOf(
-        "✨ Ещё чуть-чуть...",
-        "🎬 Ещё пару штрихов...",
-        "🎨 Проверяем композицию...",
-        "⚡ Работа кипит!",
-        "🎯 Почти готово...",
-        "🔧 Применяем магию монтажа...",
-        "🎪 Творим чудеса...",
-        "🚀 Обрабатываем кадры...",
-        "🎭 Добавляем последние штрихи...",
-        "🌟 Полируем результат...",
-        "🎵 Синхронизируем элементы...",
-        "📽️ Склеиваем фрагменты...",
-        "🖼️ Оптимизируем качество...",
-        "💫 Всё идёт по плану!",
-        "🎉 Уже скоро увидишь результат!"
+        context.getString(R.string.speech_bubble_progress_1),
+        context.getString(R.string.speech_bubble_progress_2),
+        context.getString(R.string.speech_bubble_progress_3),
+        context.getString(R.string.speech_bubble_progress_4),
+        context.getString(R.string.speech_bubble_progress_5),
+        context.getString(R.string.speech_bubble_progress_6),
+        context.getString(R.string.speech_bubble_progress_7),
+        context.getString(R.string.speech_bubble_progress_8),
+        context.getString(R.string.speech_bubble_progress_9),
+        context.getString(R.string.speech_bubble_progress_10),
+        context.getString(R.string.speech_bubble_progress_11),
+        context.getString(R.string.speech_bubble_progress_12),
+        context.getString(R.string.speech_bubble_progress_13),
+        context.getString(R.string.speech_bubble_progress_14),
+        context.getString(R.string.speech_bubble_progress_15)
     )
     return messages.random()
 }
 
 // Компонент с примерами советов
-fun getRandomTip(): String {
+fun getRandomTip(context: Context): String {
     val tips = listOf(
-        "💡 Совет: Снимайте при хорошем освещении для лучшего качества",
-        "💡 Совет: Держите камеру стабильно или используйте штатив",
-        "💡 Совет: Записывайте короткие фрагменты для удобного монтажа",
-        "💡 Совет: Говорите четко и делайте паузы между фразами",
-        "💡 Совет: Оставляйте 2-3 секунды до и после основного действия",
-        "💡 Совет: Снимайте в горизонтальной ориентации для Reels",
-        "💡 Совет: Используйте правило третей для красивой композиции",
-        "💡 Совет: Старайтесь снимать на уровне глаз",
-        "💡 Совет: Избегайте съёмки против света",
-        "💡 Совет: Проверяйте фокус перед началом записи"
+        context.getString(R.string.speech_bubble_tip_1),
+        context.getString(R.string.speech_bubble_tip_2),
+        context.getString(R.string.speech_bubble_tip_3),
+        context.getString(R.string.speech_bubble_tip_4),
+        context.getString(R.string.speech_bubble_tip_5),
+        context.getString(R.string.speech_bubble_tip_6),
+        context.getString(R.string.speech_bubble_tip_7),
+        context.getString(R.string.speech_bubble_tip_8)
     )
     return tips.random()
 }

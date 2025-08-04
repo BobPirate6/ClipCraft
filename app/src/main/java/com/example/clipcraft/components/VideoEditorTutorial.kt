@@ -23,6 +23,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.res.stringResource
+import com.example.clipcraft.R
 
 /**
  * Данные для шага туториала
@@ -59,63 +61,49 @@ fun VideoEditorTutorial(
         android.util.Log.d("VideoEditorTutorial", "Tutorial visibility changed to: $isVisible")
     }
     
-    val steps = remember {
-        listOf(
-            EditorTutorialStep(
-                title = "Добро пожаловать в редактор",
-                description = "Здесь вы можете вручную смонтировать ваше видео.",
+    val steps = listOf(
+        EditorTutorialStep(
+            title = stringResource(R.string.tutorial_editor_welcome),
+            description = stringResource(R.string.tutorial_editor_intro),
                 icon = Icons.Default.Movie
             ),
             EditorTutorialStep(
-                title = "Таймлайн",
-                description = "Внизу находится таймлайн с сегментами вашего видео. Нажмите на сегмент, чтобы выбрать его (появится синяя рамка)",
+            title = stringResource(R.string.tutorial_timeline_title),
+            description = stringResource(R.string.tutorial_timeline_desc),
                 icon = Icons.Default.Timeline,
                 highlightArea = HighlightArea.TIMELINE
             ),
             EditorTutorialStep(
-                title = "Управление масштабом",
-                description = "Используйте кнопки + и - для изменения масштаба. Кнопка с квадратиками показывает все сегменты на экране",
+            title = stringResource(R.string.tutorial_zoom_title),
+            description = stringResource(R.string.tutorial_zoom_desc),
                 icon = Icons.Default.ZoomIn,
                 highlightArea = HighlightArea.ZOOM_SLIDER
             ),
             EditorTutorialStep(
-                title = "Обрезка видео",
-                description = "После выбора сегмента появятся белые ручки со стрелками по краям. Двигайте их для обрезки сегмента",
+            title = stringResource(R.string.tutorial_trim_title),
+            description = stringResource(R.string.tutorial_trim_desc),
                 icon = Icons.Default.ContentCut,
                 highlightArea = HighlightArea.TRIM_HANDLES
             ),
             EditorTutorialStep(
-                title = "Изменение порядка",
-                description = "Для перемещения сегмента зажмите и перемещайте его.",
+            title = stringResource(R.string.tutorial_reorder_title),
+            description = stringResource(R.string.tutorial_reorder_desc),
                 icon = Icons.Default.DragHandle,
                 highlightArea = HighlightArea.DRAG_HANDLE
             ),
             EditorTutorialStep(
-                title = "Добавление и удаление",
-                description = "Используйте кнопку '+' для добавления нового видео. Для удаления выделите сегмент и нажмите кнопку корзины",
+            title = stringResource(R.string.tutorial_add_remove_title),
+            description = stringResource(R.string.tutorial_add_remove_desc),
                 icon = Icons.Default.Add,
                 highlightArea = HighlightArea.TIMELINE
             ),
             EditorTutorialStep(
-                title = "Отмена действий",
-                description = "Используйте стрелки отмены и повтора для возврата к предыдущим состояниям. Красная кнопка сброса возвращает к исходному состоянию",
+            title = stringResource(R.string.tutorial_undo_title),
+            description = stringResource(R.string.tutorial_undo_desc),
                 icon = Icons.Default.Undo,
                 highlightArea = HighlightArea.TIMELINE
-            ),
-            EditorTutorialStep(
-                title = "Просмотр",
-                description = "Нажмите кнопку воспроизведения для предпросмотра.",
-                icon = Icons.Default.PlayArrow,
-                highlightArea = HighlightArea.PLAY_BUTTON
-            ),
-            EditorTutorialStep(
-                title = "Сохранение",
-                description = "Сохраните ваше видео.",
-                icon = Icons.Default.Save,
-                highlightArea = HighlightArea.SAVE_BUTTON
             )
-        )
-    }
+    )
     
     AnimatedVisibility(
         visible = isVisible,
@@ -148,7 +136,7 @@ fun VideoEditorTutorial(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Пропустить",
+                        text = stringResource(R.string.tutorial_skip),
                         color = Color.White,
                         fontSize = 14.sp
                     )
@@ -245,7 +233,7 @@ fun VideoEditorTutorial(
                             ) {
                                 Icon(Icons.Default.ArrowBack, contentDescription = null)
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text("Назад")
+                                Text(stringResource(R.string.action_back))
                             }
                         }
                         
@@ -262,7 +250,7 @@ fun VideoEditorTutorial(
                             )
                         ) {
                             Text(
-                                if (currentStep < steps.size - 1) "Далее" else "Начать"
+                                if (currentStep < steps.size - 1) stringResource(R.string.action_continue) else stringResource(R.string.action_start)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Icon(

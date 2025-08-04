@@ -28,6 +28,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.res.stringResource
+import com.example.clipcraft.R
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.geometry.CornerRadius
@@ -232,7 +234,7 @@ fun TutorialOverlay(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Пропустить",
+                        text = stringResource(R.string.tutorial_skip),
                         color = Color.White,
                         fontSize = 14.sp
                     )

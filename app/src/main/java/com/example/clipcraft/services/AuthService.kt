@@ -8,7 +8,11 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.auth.UserProfileChangeRequest
 import com.google.firebase.firestore.FirebaseFirestore
+import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
@@ -24,10 +28,34 @@ class AuthService @Inject constructor(
     }
 
     fun getCurrentUserFlow(): Flow<User?> {
-        return auth.authStateFlow().map { firebaseUser ->
+        return auth.authStateFlow().flatMapLatest { firebaseUser ->
             if (firebaseUser != null) {
-                getUserData(firebaseUser.uid)
-            } else null
+                observeUserData(firebaseUser.uid)
+            } else {
+                flowOf(null)
+            }
+        }
+    }
+    
+    private fun observeUserData(uid: String): Flow<User?> = callbackFlow {
+        val listener = firestore.collection("users")
+            .document(uid)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    trySend(null)
+                    return@addSnapshotListener
+                }
+                
+                if (snapshot != null && snapshot.exists()) {
+                    val user = snapshot.toObject(User::class.java)
+                    trySend(user)
+                } else {
+                    trySend(null)
+                }
+            }
+        
+        awaitClose {
+            listener.remove()
         }
     }
 

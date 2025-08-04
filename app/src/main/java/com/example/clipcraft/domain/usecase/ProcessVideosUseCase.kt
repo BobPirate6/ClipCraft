@@ -10,12 +10,14 @@ import kotlinx.coroutines.flow.flow
 import javax.inject.Inject
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
+import com.example.clipcraft.utils.ProcessingMessageProvider
 
 class ProcessVideosUseCase @Inject constructor(
     private val videoAnalyzer: VideoAnalyzerService,
     private val transcriptionService: TranscriptionService,
     private val videoEditor: VideoEditorService,
-    private val apiService: ClipCraftApiService
+    private val apiService: ClipCraftApiService,
+    private val messageProvider: ProcessingMessageProvider
 ) {
     private val TAG = "ProcessVideosUseCase"
 
@@ -33,7 +35,7 @@ class ProcessVideosUseCase @Inject constructor(
 
             if (editingState.mode == ProcessingMode.EDIT && videoAnalysesMap != null) {
                 // В режиме редактирования используем уже существующий анализ
-                emit(ProcessingState.ProgressUpdate("🔄 Режим редактирования"))
+                emit(ProcessingState.ProgressUpdate(messageProvider.getEditModeMessage()))
                 Log.d(TAG, "Режим редактирования: используем сохраненный анализ видео.")
                 selectedVideos.forEach { video ->
                     val analysis = videoAnalysesMap[video.fileName]
@@ -42,22 +44,22 @@ class ProcessVideosUseCase @Inject constructor(
                         currentVideoMap[video.fileName] = video
                     } else {
                         Log.e(TAG, "Ошибка: Анализ для видео '${video.fileName}' не найден в режиме редактирования.")
-                        emit(ProcessingState.Error("Анализ для исходного видео не найден."))
+                        emit(ProcessingState.Error(messageProvider.getVideoAnalysisNotFoundError()))
                         return@flow
                     }
                 }
             } else {
                 // Для нового видео или если анализ не предоставлен, выполняем полный анализ
-                emit(ProcessingState.ProgressUpdate("📹 Анализируем видео..."))
+                emit(ProcessingState.ProgressUpdate(messageProvider.getAnalyzingVideosMessage()))
                 Log.d(TAG, "Начало анализа видео. Режим: ${editingState.mode}")
 
                 selectedVideos.forEachIndexed { index, video ->
-                    emit(ProcessingState.ProgressUpdate("🎬 Обрабатываем видео ${index + 1} из ${selectedVideos.size}"))
+                    emit(ProcessingState.ProgressUpdate(messageProvider.getVideoProgressMessage(index + 1, selectedVideos.size)))
                     Log.d(TAG, "Обработка видео ${index + 1}/${selectedVideos.size}: fileName='${video.fileName}', path='${video.path}'")
 
                     // Анализируем видео с определением сцен
                     var analysis = videoAnalyzer.analyzeVideoWithScenes(video)
-                    emit(ProcessingState.ProgressUpdate("✅ Видео ${index + 1} проанализировано"))
+                    emit(ProcessingState.ProgressUpdate(messageProvider.getVideoAnalyzedMessage(index + 1)))
                     Log.d(TAG, "Анализ сцен для ${video.fileName} завершен. Найдено ${analysis.scenes.size} сцен.")
 
                     // Если есть аудио, транскрибируем
@@ -77,7 +79,7 @@ class ProcessVideosUseCase @Inject constructor(
                                 fullText
                             }
 
-                            emit(ProcessingState.ProgressUpdate("💬 В видео ${index + 1} найдена речь: \"$truncatedText\""))
+                            emit(ProcessingState.ProgressUpdate(messageProvider.getSpeechFoundMessage(index + 1, truncatedText)))
                             Log.d(TAG, "Транскрибировано ${transcription.size} сегментов для ${video.fileName}")
 
                             // Добавляем транскрипцию к каждой сцене
@@ -111,23 +113,23 @@ class ProcessVideosUseCase @Inject constructor(
             }
 
             if (!hasValidScenes) {
-                emit(ProcessingState.Error("Не удалось извлечь кадры из видео для анализа"))
+                emit(ProcessingState.Error(messageProvider.getCannotExtractFramesError()))
                 Log.e(TAG, "Ошибка: Не удалось извлечь кадры из видео для анализа сервером.")
                 return@flow
             }
-            emit(ProcessingState.ProgressUpdate("📊 Все видео готовы к монтажу"))
+            emit(ProcessingState.ProgressUpdate(messageProvider.getAllVideosReadyMessage()))
             Log.d(TAG, "Все видео проанализированы и готовы к отправке на сервер ClipCraft.")
 
             // 2. Отправка на сервер ClipCraft
-            emit(ProcessingState.ProgressUpdate("🔍 Анализируем контент..."))
+            emit(ProcessingState.ProgressUpdate(messageProvider.getAnalyzingContentMessage()))
             Log.d(TAG, "Проверка доступности основного сервера ClipCraft...")
 
             try {
                 performHealthCheck()
-                emit(ProcessingState.ProgressUpdate("✅ Анализ завершен"))
+                emit(ProcessingState.ProgressUpdate(messageProvider.getAnalysisCompleteMessage()))
             } catch (e: Exception) {
                 Log.e(TAG, "Ошибка при проверке доступности основного сервера ClipCraft", e)
-                emit(ProcessingState.Error("Не удалось проанализировать видео. Проверьте подключение к интернету."))
+                emit(ProcessingState.Error(messageProvider.getCannotAnalyzeVideoError()))
                 return@flow
             }
 
@@ -138,22 +140,22 @@ class ProcessVideosUseCase @Inject constructor(
             )
             Log.d(TAG, "Сформирован запрос к ClipCraft API. UserCommand: '$userCommand', Видео: ${currentVideoAnalyses.size}, Режим: ${editingState.mode}")
 
-            emit(ProcessingState.ProgressUpdate("🤖 Создаем план монтажа..."))
+            emit(ProcessingState.ProgressUpdate(messageProvider.getCreatingPlanMessage()))
             val apiResponse = apiService.analyzeVideos(apiRequest)
-            emit(ProcessingState.ProgressUpdate("📋 План монтажа готов!"))
+            emit(ProcessingState.ProgressUpdate(messageProvider.getPlanReadyMessage()))
             Log.d(TAG, "Ответ от ClipCraft API получен успешно.")
 
             val editPlan = ApiMapper.fromApiResponse(apiResponse)
 
             // Показываем детали плана монтажа
             val planSummary = "Будет создано видео из ${editPlan.finalEdit.size} фрагментов"
-            emit(ProcessingState.ProgressUpdate("📝 $planSummary"))
+            emit(ProcessingState.ProgressUpdate(messageProvider.getPlanSummaryMessage(planSummary)))
 
             // Если есть notes в плане, показываем их
             editPlan.finalEdit.forEach { segment ->
                 segment.notes?.let { notes ->
                     if (notes.isNotBlank()) {
-                        emit(ProcessingState.ProgressUpdate("💭 $notes"))
+                        emit(ProcessingState.ProgressUpdate(messageProvider.getPlanNotesMessage(notes)))
                     }
                 }
             }
@@ -162,13 +164,13 @@ class ProcessVideosUseCase @Inject constructor(
 
             // Проверяем план монтажа
             if (editPlan.finalEdit.isEmpty()) {
-                emit(ProcessingState.Error("Не удалось создать план монтажа"))
+                emit(ProcessingState.Error(messageProvider.getEmptyEditPlanError()))
                 Log.e(TAG, "Ошибка: Сервер вернул пустой план монтажа.")
                 return@flow
             }
 
             // 3. Монтаж видео локально
-            emit(ProcessingState.ProgressUpdate("🎬 Начинаем монтаж видео..."))
+            emit(ProcessingState.ProgressUpdate(messageProvider.getStartingEditMessage()))
             Log.d(TAG, "Начало локального монтажа видео.")
 
             val outputPath = videoEditor.executeEditPlan(
@@ -182,7 +184,7 @@ class ProcessVideosUseCase @Inject constructor(
                     // Прогресс будет логироваться, но не отображаться в UI
                 }
             )
-            emit(ProcessingState.ProgressUpdate("🎉 Видео готово!"))
+            emit(ProcessingState.ProgressUpdate(messageProvider.getVideoReadyMessage()))
             Log.d(TAG, "Локальный монтаж видео завершен. Выходной путь: $outputPath")
 
             // 4. Успех
@@ -193,21 +195,21 @@ class ProcessVideosUseCase @Inject constructor(
 
         } catch (e: retrofit2.HttpException) {
             val errorMessage = when (e.code()) {
-                500 -> "Ошибка обработки. Попробуйте позже."
-                404 -> "Функция недоступна. Проверьте настройки."
-                400 -> "Неверные параметры обработки."
-                else -> "Ошибка сети: ${e.code()}"
+                500 -> messageProvider.getProcessingLaterError()
+                404 -> messageProvider.getFeatureUnavailableError()
+                400 -> messageProvider.getInvalidParametersError()
+                else -> messageProvider.getNetworkError(e.code())
             }
             Log.e(TAG, "HTTP ошибка при обработке видео: Код ${e.code()}, Сообщение: ${e.message()}", e)
             emit(ProcessingState.Error(errorMessage))
         } catch (e: java.net.UnknownHostException) {
             Log.e(TAG, "Ошибка: Нет подключения к интернету или недоступен хост ClipCraft API.", e)
-            emit(ProcessingState.Error("Нет подключения к интернету"))
+            emit(ProcessingState.Error(messageProvider.getNoInternetError()))
         } catch (e: java.net.SocketTimeoutException) {
             Log.e(TAG, "Ошибка: Превышено время ожидания ответа от сервера ClipCraft API.", e)
-            emit(ProcessingState.Error("Превышено время обработки видео"))
+            emit(ProcessingState.Error(messageProvider.getTimeoutError()))
         } catch (e: Exception) {
-            val errorMessage = e.message ?: "Неизвестная ошибка"
+            val errorMessage = e.message ?: messageProvider.getUnknownError()
             Log.e(TAG, "Неизвестная ошибка при обработке видео: $errorMessage", e)
             emit(ProcessingState.Error(errorMessage))
         }
@@ -217,7 +219,7 @@ class ProcessVideosUseCase @Inject constructor(
         val health = withContext(Dispatchers.IO) { apiService.checkHealth() }
         if (health.status != "healthy") {
             Log.e(TAG, "Основной сервер ClipCraft недоступен: Статус - ${health.status}")
-            throw Exception("Основной сервер недоступен. Статус: ${health.status}")
+            throw Exception(messageProvider.getServerUnavailableError(health.status))
         }
         Log.d(TAG, "Основной сервер ClipCraft доступен. Статус: ${health.status}")
     }

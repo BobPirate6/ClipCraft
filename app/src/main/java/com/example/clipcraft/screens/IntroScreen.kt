@@ -21,6 +21,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.res.stringResource
+import com.example.clipcraft.R
 import com.example.clipcraft.models.AuthState
 import android.util.Log
 
@@ -188,7 +190,7 @@ fun IntroScreen(
                                         showPasswordField = true
                                     }
                                 },
-                                label = { Text("Email") },
+                                label = { Text(stringResource(R.string.intro_email)) },
                                 keyboardOptions = KeyboardOptions(
                                     keyboardType = KeyboardType.Email
                                 ),
@@ -206,7 +208,7 @@ fun IntroScreen(
                                 OutlinedTextField(
                                     value = password,
                                     onValueChange = { password = it },
-                                    label = { Text("Пароль") },
+                                    label = { Text(stringResource(R.string.intro_password)) },
                                     keyboardOptions = KeyboardOptions(
                                         keyboardType = KeyboardType.Password
                                     ),
@@ -332,7 +334,7 @@ fun IntroScreen(
         
         AlertDialog(
             onDismissRequest = { showResetDialog = false },
-            title = { Text("Восстановление пароля") },
+            title = { Text(stringResource(R.string.intro_password_recovery)) },
             text = {
                 Column {
                     Text(
@@ -343,7 +345,7 @@ fun IntroScreen(
                     OutlinedTextField(
                         value = resetEmail,
                         onValueChange = { resetEmail = it },
-                        label = { Text("Email") },
+                        label = { Text(stringResource(R.string.intro_email)) },
                         keyboardOptions = KeyboardOptions(
                             keyboardType = KeyboardType.Email
                         ),
@@ -360,12 +362,12 @@ fun IntroScreen(
                     },
                     enabled = resetEmail.contains("@")
                 ) {
-                    Text("Отправить")
+                    Text(stringResource(R.string.action_send))
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showResetDialog = false }) {
-                    Text("Отмена")
+                    Text(stringResource(R.string.action_cancel))
                 }
             }
         )

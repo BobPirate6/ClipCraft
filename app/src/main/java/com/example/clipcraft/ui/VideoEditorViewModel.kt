@@ -7,24 +7,38 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.qualifiers.ApplicationContext
 import com.example.clipcraft.models.*
+import java.util.Date
 import com.example.clipcraft.services.VideoEditingService
 import com.example.clipcraft.services.VideoInfo
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
 import javax.inject.Inject
 import androidx.lifecycle.SavedStateHandle
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import com.example.clipcraft.utils.VideoEditorStateManager
+import com.example.clipcraft.utils.TemporaryFileManager
+import com.example.clipcraft.utils.VideoEditorUpdateManager
+import com.example.clipcraft.domain.model.*
+import com.example.clipcraft.services.VideoRenderingService
 
 @HiltViewModel
 class VideoEditorViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val videoEditingService: VideoEditingService,
     private val savedStateHandle: SavedStateHandle,
-    private val gson: Gson
+    private val gson: Gson,
+    private val videoEditorStateManager: VideoEditorStateManager,
+    private val temporaryFileManager: TemporaryFileManager,
+    private val videoEditorUpdateManager: VideoEditorUpdateManager,
+    private val videoEditorOrchestrator: VideoEditorOrchestrator,
+    private val videoStateManager: VideoStateManager,
+    private val videoRenderingService: VideoRenderingService
 ) : ViewModel() {
     
     companion object {
@@ -49,6 +63,9 @@ class VideoEditorViewModel @Inject constructor(
     private val _timelineState = MutableStateFlow(TimelineState())
     val timelineState: StateFlow<TimelineState> = _timelineState.asStateFlow()
     
+    // Rendering progress
+    val renderingProgress: StateFlow<VideoRenderingService.RenderingProgress> = videoRenderingService.renderingProgress
+    
     private val _editHistory = mutableListOf<EditAction>()
     private var _historyIndex = -1
     
@@ -57,10 +74,33 @@ class VideoEditorViewModel @Inject constructor(
     private var _originalVideoAnalyses: Map<String, VideoAnalysis>? = null
     private var _originalSelectedVideos: List<SelectedVideo> = emptyList()
     
+    // Сохраняем состояние на момент входа в редактор
+    private var _entrySegments: List<VideoSegment> = emptyList()
+    private var _entryVideoPath: String? = null
+    
     init {
         Log.d(TAG, "VideoEditorViewModel init called")
-        restoreState()
-        Log.d(TAG, "After restoreState: segments=${_timelineState.value.segments.size}")
+        
+        // Проверяем, нужно ли очистить состояние
+        if (videoEditorStateManager.shouldClearEditorState()) {
+            Log.d(TAG, "Clearing editor state as requested")
+            clearAllState()
+        } else {
+            restoreState()
+            Log.d(TAG, "After restoreState: segments=${_timelineState.value.segments.size}")
+        }
+        
+        // Проверяем наличие обновлений от голосового редактирования
+        checkForPendingUpdates()
+        
+        // Подписываемся на обновления состояния от оркестратора
+        viewModelScope.launch {
+            videoEditorOrchestrator.currentSession.collect { session ->
+                session?.let {
+                    handleSessionUpdate(it)
+                }
+            }
+        }
     }
     
     /**
@@ -69,12 +109,21 @@ class VideoEditorViewModel @Inject constructor(
     fun initializeWithEditPlan(
         editPlan: EditPlan,
         videoAnalyses: Map<String, VideoAnalysis>,
-        selectedVideos: List<SelectedVideo> = emptyList()
+        selectedVideos: List<SelectedVideo> = emptyList(),
+        currentVideoPath: String? = null
     ) {
         viewModelScope.launch {
             try {
                 Log.d(TAG, "Initializing editor with ${editPlan.finalEdit.size} segments")
                 Log.d("videoeditorclipcraft", "VideoEditorViewModel.initializeWithEditPlan called with ${editPlan.finalEdit.size} segments")
+                Log.d("videoeditorclipcraft", "currentVideoPath: $currentVideoPath")
+                
+                // Если есть currentVideoPath, это AI-отредактированное видео
+                if (currentVideoPath != null) {
+                    Log.d(TAG, "Initializing with AI-edited video: $currentVideoPath")
+                    initializeWithAIEditedVideo(currentVideoPath, editPlan, videoAnalyses, selectedVideos)
+                    return@launch
+                }
                 
                 // Проверяем, есть ли уже сегменты и соответствуют ли они текущим видео
                 val isManualMode = editPlan.finalEdit.isEmpty() && selectedVideos.isNotEmpty()
@@ -225,6 +274,10 @@ class VideoEditorViewModel @Inject constructor(
                 Log.d("videoeditorclipcraft", "Timeline state updated with ${_timelineState.value.segments.size} segments")
                 Log.d("videoeditorclipcraft", "Editor state updated")
                 
+                // Сохраняем состояние входа в редактор
+                _entrySegments = segments.toList()
+                _entryVideoPath = currentVideoPath
+                
                 // Создаем первую временную версию видео
                 if (segments.isNotEmpty()) {
                     Log.d("videoeditorclipcraft", "Creating initial preview video")
@@ -238,6 +291,89 @@ class VideoEditorViewModel @Inject constructor(
                 Log.e(TAG, "Error initializing editor", e)
                 Log.e("videoeditorclipcraft", "Failed to initialize editor", e)
             }
+        }
+    }
+    
+    /**
+     * Инициализация с AI-отредактированным видео
+     */
+    private suspend fun initializeWithAIEditedVideo(
+        videoPath: String,
+        editPlan: EditPlan,
+        videoAnalyses: Map<String, VideoAnalysis>,
+        selectedVideos: List<SelectedVideo>
+    ) {
+        try {
+            Log.d(TAG, "Initializing with AI-edited video: $videoPath")
+            
+            // Сохраняем оригинальные данные
+            _originalPlan = editPlan
+            _originalVideoAnalyses = videoAnalyses
+            _originalSelectedVideos = selectedVideos
+            
+            // Создаем URI из пути
+            val videoFile = File(videoPath)
+            val videoUri = Uri.fromFile(videoFile)
+            
+            if (!videoFile.exists()) {
+                Log.e(TAG, "AI-edited video file does not exist: $videoPath")
+                return
+            }
+            
+            // Получаем информацию о видео
+            val videoInfo = try {
+                videoEditingService.getVideoInfo(videoUri)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to get video info for AI-edited video", e)
+                VideoInfo(duration = 60f, width = 1920, height = 1080, frameRate = 30f)
+            }
+            
+            // Генерируем превью
+            val thumbnails = try {
+                videoEditingService.generateThumbnails(
+                    videoUri = videoUri,
+                    startTime = 0f,
+                    endTime = videoInfo.duration,
+                    count = 10
+                )
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to generate thumbnails for AI-edited video", e)
+                emptyList()
+            }
+            
+            // Создаем один сегмент для всего AI-отредактированного видео
+            val segment = VideoSegment(
+                sourceVideoUri = videoUri,
+                sourceVideoPath = videoPath,
+                sourceFileName = "AI_Edited_Video",
+                originalDuration = videoInfo.duration,
+                inPoint = 0f,
+                outPoint = videoInfo.duration,
+                timelinePosition = 0f,
+                thumbnails = thumbnails
+            )
+            
+            _timelineState.value = TimelineState(
+                segments = listOf(segment),
+                totalDuration = videoInfo.duration,
+                zoomLevel = 1.0f
+            )
+            
+            _editorState.value = _editorState.value.copy(
+                originalPlan = editPlan,
+                timelineState = _timelineState.value,
+                tempVideoPath = videoPath,
+                currentVideoPath = videoPath,
+                isProcessing = false
+            )
+            
+            Log.d(TAG, "AI-edited video initialized successfully")
+            
+            // Сохраняем состояние
+            saveState()
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error initializing AI-edited video", e)
         }
     }
     
@@ -492,11 +628,14 @@ class VideoEditorViewModel @Inject constructor(
                     InsertSide.AFTER -> insertPosition.index + 1
                 }
                 
-                recordAction(EditAction.AddSegment(segment, actualIndex))
+                // Ensure index is within bounds
+                val safeIndex = actualIndex.coerceIn(0, _timelineState.value.segments.size)
+                
+                recordAction(EditAction.AddSegment(segment, safeIndex))
                 
                 _timelineState.update { state ->
                     val newSegments = state.segments.toMutableList()
-                    newSegments.add(actualIndex, segment)
+                    newSegments.add(safeIndex, segment)
                     state.copy(segments = newSegments)
                 }
                 
@@ -673,7 +812,14 @@ class VideoEditorViewModel @Inject constructor(
     ) {
         Log.d(TAG, "Applying voice command: $command")
         
-        // Сохраняем команду для обработки на главном экране
+        // Отмечаем, что это голосовое редактирование из редактора
+        mainViewModel.updateEditingState(
+            mainViewModel.editingState.value.copy(
+                isVoiceEditingFromEditor = true
+            )
+        )
+        
+        // Сохраняем команду для обработки
         mainViewModel.updateCommand(command)
         
         // Проверяем, был ли видео смонтирован вручную (пустой план)
@@ -699,62 +845,187 @@ class VideoEditorViewModel @Inject constructor(
             mainViewModel.startEditing(command)
         }
         
-        // Возвращаемся на главный экран со speech bubbles
-        mainViewModel.navigateTo(MainViewModel.Screen.Main)
+        // НЕ возвращаемся на главный экран - остаемся в редакторе для просмотра результата
     }
     
     /**
-     * Сброс к оригинальному плану
+     * Проверить и применить обновления от внешних изменений
+     */
+    fun checkForPendingUpdates() {
+        viewModelScope.launch {
+            val update = videoEditorUpdateManager.getPendingUpdate()
+            if (update != null) {
+                Log.d(TAG, "Applying pending update from voice editing")
+                // Очищаем текущее состояние
+                clearAllState()
+                // Применяем новое
+                initializeWithEditPlan(
+                    editPlan = update.editPlan,
+                    videoAnalyses = update.videoAnalyses,
+                    selectedVideos = update.selectedVideos
+                )
+                // Обновляем путь к видео
+                _editorState.value = _editorState.value.copy(
+                    tempVideoPath = update.resultPath
+                )
+            }
+        }
+    }
+    
+    /**
+     * Сброс к состоянию входа в редактор
      */
     fun resetToOriginal() {
-        Log.d(TAG, "resetToOriginal called")
+        Log.d(TAG, "resetToOriginal called - resetting to entry state")
         
         viewModelScope.launch {
             try {
-                // Очищаем текущее состояние
-                _timelineState.value = TimelineState()
+                // Очищаем историю
                 _editHistory.clear()
                 _historyIndex = -1
                 
-                // Переинициализируем с оригинальными данными
-                val originalPlan = _originalPlan
-                val originalAnalyses = _originalVideoAnalyses
-                val originalVideos = _originalSelectedVideos
-                
-                if (originalPlan != null && originalVideos.isNotEmpty()) {
-                    Log.d(TAG, "Resetting with original plan: ${originalPlan.finalEdit.size} segments")
+                // Восстанавливаем сегменты на момент входа
+                if (_entrySegments.isNotEmpty()) {
+                    val totalDuration = _entrySegments.sumOf { it.duration.toDouble() }.toFloat()
                     
-                    // Временно сбрасываем оригинальные данные, чтобы initializeWithEditPlan сохранил их заново
-                    _originalPlan = null
-                    _originalVideoAnalyses = null
-                    _originalSelectedVideos = emptyList()
-                    
-                    // Если план пустой, это был ручной режим
-                    if (originalPlan.finalEdit.isEmpty()) {
-                        initializeManualEdit(originalVideos)
-                    } else {
-                        // Обычная инициализация с планом
-                        initializeWithEditPlan(originalPlan, originalAnalyses ?: emptyMap(), originalVideos)
-                    }
-                } else {
-                    Log.e(TAG, "Cannot reset - no original data available")
-                }
-                
-                // Обновляем состояние
-                _editorState.update { state ->
-                    state.copy(
-                        hasUnsavedChanges = false,
-                        editHistory = EditHistoryState(
-                            actions = emptyList(),
-                            currentIndex = -1,
-                            maxHistorySize = MAX_HISTORY_SIZE
-                        )
+                    _timelineState.value = TimelineState(
+                        segments = _entrySegments.toList(),
+                        totalDuration = totalDuration,
+                        zoomLevel = 1.0f
                     )
+                    
+                    // Восстанавливаем путь к видео
+                    _editorState.update { state ->
+                        state.copy(
+                            currentVideoPath = _entryVideoPath,
+                            tempVideoPath = _entryVideoPath,
+                            hasUnsavedChanges = false,
+                            editHistory = EditHistoryState(
+                                actions = emptyList(),
+                                currentIndex = -1,
+                                maxHistorySize = MAX_HISTORY_SIZE
+                            )
+                        )
+                    }
+                    
+                    Log.d(TAG, "Reset to entry state with ${_entrySegments.size} segments")
+                } else {
+                    Log.e(TAG, "Cannot reset - no entry state saved")
                 }
+                
+                // Сохраняем состояние
+                saveState()
             } catch (e: Exception) {
                 Log.e(TAG, "Error resetting to original", e)
             }
         }
+    }
+    
+    // Флаг для отмены рендеринга
+    private var renderingJob: kotlinx.coroutines.Job? = null
+    
+    /**
+     * Apply current state - renders video and saves state
+     */
+    suspend fun applyCurrentState(onProgress: (Float) -> Unit): String {
+        return try {
+            _editorState.update { it.copy(isSaving = true) }
+            
+            val segments = _timelineState.value.segments
+            if (segments.isEmpty()) {
+                throw IllegalStateException("No segments to render")
+            }
+            
+            // Проверяем, были ли изменения
+            val currentState = _editorState.value
+            val hasChanges = _editHistory.isNotEmpty() || currentState.hasUnsavedChanges
+            
+            if (!hasChanges && currentState.currentVideoPath != null) {
+                // Если изменений не было, возвращаем текущее видео
+                _editorState.update { it.copy(isSaving = false) }
+                return currentState.currentVideoPath
+            }
+            
+            // Запускаем рендеринг в отдельной coroutine для возможности отмены
+            renderingJob = viewModelScope.launch {
+                try {
+                    // Render video
+                    val renderedPath = videoRenderingService.renderSegments(segments, onProgress)
+                    
+                    // Transition to final state
+                    videoStateManager.transitionToFinalState(renderedPath, segments)
+                    
+                    // Apply state (save as current)
+                    videoStateManager.applyCurrentState()
+                    
+                    // Обновляем путь к текущему видео
+                    _editorState.update { 
+                        it.copy(
+                            isSaving = false,
+                            currentVideoPath = renderedPath,
+                            hasUnsavedChanges = false
+                        ) 
+                    }
+                    
+                    // Очищаем историю после успешного сохранения
+                    _editHistory.clear()
+                    _historyIndex = -1
+                    
+                    // Сохраняем состояние в SharedPreferences
+                    saveState()
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    Log.d(TAG, "Rendering cancelled")
+                    throw e
+                }
+            }
+            
+            renderingJob?.join()
+            _editorState.value.currentVideoPath ?: throw IllegalStateException("No video path after rendering")
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            _editorState.update { it.copy(isSaving = false) }
+            throw e
+        } catch (e: Exception) {
+            _editorState.update { it.copy(isSaving = false) }
+            Log.e(TAG, "Failed to apply state", e)
+            throw e
+        }
+    }
+    
+    /**
+     * Отмена рендеринга
+     */
+    fun cancelRendering() {
+        renderingJob?.cancel()
+        renderingJob = null
+        _editorState.update { it.copy(isSaving = false) }
+    }
+    
+    /**
+     * Автосохранение состояния редактора
+     */
+    suspend fun autoSave() {
+        try {
+            Log.d(TAG, "Auto-saving editor state")
+            
+            // Сохраняем текущее состояние сегментов
+            saveState()
+            
+            // Если есть изменения, создаем временную версию
+            if (_editHistory.isNotEmpty() && _timelineState.value.segments.isNotEmpty()) {
+                updateTempVideo()
+            }
+            
+            Log.d(TAG, "Auto-save completed")
+        } catch (e: Exception) {
+            Log.e(TAG, "Auto-save failed", e)
+        }
+    }
+    
+    /**
+     * Exit to previous state without saving changes
+     */
+    fun exitToPreviousState(): VideoEditState? {
+        return videoStateManager.exitToPreviousState()
     }
     
     /**
@@ -769,6 +1040,9 @@ class VideoEditorViewModel @Inject constructor(
             // Создаем временный файл для экспорта
             val tempFile = File(context.cacheDir, "export_${System.currentTimeMillis()}.mp4")
             val outputPath = tempFile.absolutePath
+            
+            // Регистрируем временный файл
+            temporaryFileManager.registerTemporaryFile(outputPath)
             
             videoEditingService.createFinalVideo(
                 segments = segments,
@@ -790,6 +1064,66 @@ class VideoEditorViewModel @Inject constructor(
         } catch (e: Exception) {
             Log.e(TAG, "Error exporting video", e)
             _editorState.update { it.copy(isSaving = false) }
+            throw e
+        }
+    }
+    
+    /**
+     * Сохранить данные проекта в JSON
+     */
+    suspend fun saveProjectData(projectId: String, originalCommand: String, editCommands: List<String> = emptyList()): String = withContext(Dispatchers.IO) {
+        try {
+            val segments = _timelineState.value.segments
+            val editPlan = getUpdatedEditPlan()
+            
+            // Преобразуем сегменты в данные для сохранения
+            val timelineSegments = segments.map { segment ->
+                TimelineSegmentData(
+                    segmentId = segment.id,
+                    sourceVideoUri = segment.sourceVideoUri.toString(),
+                    sourceFileName = segment.sourceFileName,
+                    originalDuration = segment.originalDuration,
+                    inPoint = segment.inPoint,
+                    outPoint = segment.outPoint,
+                    timelinePosition = segment.timelinePosition
+                )
+            }
+            
+            // Получаем оригинальные URI видео
+            val originalUris = _originalSelectedVideos.map { it.uri.toString() }
+            
+            // Получаем анализы видео
+            val videoAnalysesList = _originalVideoAnalyses?.values?.toList() ?: emptyList()
+            
+            val projectData = ProjectData(
+                projectId = projectId,
+                createdAt = Date().time,
+                updatedAt = Date().time,
+                originalCommand = originalCommand,
+                editCommands = editCommands,
+                editPlan = editPlan,
+                timelineSegments = timelineSegments,
+                videoAnalyses = videoAnalysesList,
+                originalVideoUris = originalUris,
+                resultVideoPath = _editorState.value.tempVideoPath,
+                isManualEdit = _originalPlan?.finalEdit?.isEmpty() ?: true,
+                aiPlanRaw = _originalPlan?.let { gson.toJson(it) }
+            )
+            
+            // Сохраняем в файл
+            val projectFile = File(context.filesDir, "projects")
+            if (!projectFile.exists()) {
+                projectFile.mkdirs()
+            }
+            
+            val fileName = "project_${projectId}_${System.currentTimeMillis()}.json"
+            val file = File(projectFile, fileName)
+            file.writeText(gson.toJson(projectData))
+            
+            Log.d(TAG, "Project data saved to: ${file.absolutePath}")
+            file.absolutePath
+        } catch (e: Exception) {
+            Log.e(TAG, "Error saving project data", e)
             throw e
         }
     }
@@ -989,6 +1323,9 @@ class VideoEditorViewModel @Inject constructor(
                 val tempVideoPath = videoEditingService.createTempVideo(segments)
                 Log.d("videoeditorclipcraft", "updateTempVideo: Created temp video at: $tempVideoPath")
                 
+                // Регистрируем временный файл
+                temporaryFileManager.registerTemporaryFile(tempVideoPath)
+                
                 _editorState.update { state ->
                     state.copy(
                         tempVideoPath = tempVideoPath,
@@ -1147,5 +1484,114 @@ class VideoEditorViewModel @Inject constructor(
         savedStateHandle.remove<Int>(KEY_HISTORY_INDEX)
         
         Log.d(TAG, "All editor state cleared")
+    }
+    
+    /**
+     * Handle session update from orchestrator
+     */
+    private suspend fun handleSessionUpdate(session: VideoEditingSession) {
+        Log.d(TAG, "Handling session update: ${session.currentState::class.simpleName}")
+        
+        when (val state = session.currentState) {
+            is VideoState.Initial -> {
+                // Initialize with selected videos
+                if (_timelineState.value.segments.isEmpty()) {
+                    initializeManualEdit(state.selectedVideos)
+                }
+            }
+            is VideoState.AIProcessed -> {
+                // Update with AI-processed video
+                val currentVideoPath = state.videoPath
+                if (currentVideoPath != _editorState.value.currentVideoPath) {
+                    Log.d(TAG, "Updating editor with AI-processed video: $currentVideoPath")
+                    updateWithAIResult(state)
+                }
+            }
+            is VideoState.ManuallyEdited -> {
+                // Already in manual edit mode
+                Log.d(TAG, "Manual edit state - no update needed")
+            }
+            is VideoState.Combined -> {
+                // Update with combined state
+                val currentVideoPath = state.videoPath
+                if (currentVideoPath != _editorState.value.currentVideoPath) {
+                    Log.d(TAG, "Updating editor with combined video: $currentVideoPath")
+                    updateWithCombinedState(state)
+                }
+            }
+        }
+    }
+    
+    /**
+     * Update editor with AI processing result
+     */
+    private suspend fun updateWithAIResult(state: VideoState.AIProcessed) {
+        Log.d(TAG, "Updating with AI result - video: ${state.videoPath}")
+        
+        // Clear current state
+        clearAllState()
+        
+        // Initialize with new AI-processed plan
+        initializeWithEditPlan(
+            editPlan = state.editPlan,
+            videoAnalyses = state.videoAnalyses,
+            selectedVideos = _originalSelectedVideos
+        )
+        
+        // Update editor state with new video path
+        _editorState.update { current ->
+            current.copy(
+                currentVideoPath = state.videoPath,
+                originalPlan = state.editPlan
+            )
+        }
+        
+        // Register the new video for tracking
+        temporaryFileManager.registerTemporaryFile(state.videoPath)
+    }
+    
+    /**
+     * Update editor with combined state
+     */
+    private suspend fun updateWithCombinedState(state: VideoState.Combined) {
+        Log.d(TAG, "Updating with combined state - video: ${state.videoPath}")
+        
+        // Update editor state with new video path
+        _editorState.update { current ->
+            current.copy(
+                currentVideoPath = state.videoPath,
+                originalPlan = state.editPlan
+            )
+        }
+        
+        // Update timeline if needed
+        if (state.editPlan.finalEdit != _editorState.value.originalPlan?.finalEdit) {
+            clearAllState()
+            initializeWithEditPlan(
+                editPlan = state.editPlan,
+                videoAnalyses = emptyMap(),
+                selectedVideos = _originalSelectedVideos
+            )
+        }
+    }
+    
+    /**
+     * Initialize orchestrator session when editor starts
+     */
+    suspend fun initializeOrchestratorSession(
+        selectedVideos: List<SelectedVideo>? = null,
+        editPlan: EditPlan? = null,
+        videoAnalyses: Map<String, VideoAnalysis>? = null,
+        currentVideoPath: String? = null,
+        aiCommand: String = ""
+    ) {
+        Log.d(TAG, "Initializing orchestrator session")
+        videoEditorOrchestrator.initializeSession(
+            selectedVideos = selectedVideos,
+            existingEditPlan = editPlan,
+            videoAnalyses = videoAnalyses,
+            currentVideoPath = currentVideoPath,
+            aiCommand = aiCommand
+        )
     }
 }

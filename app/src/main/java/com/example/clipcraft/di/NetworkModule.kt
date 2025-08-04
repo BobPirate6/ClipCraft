@@ -69,6 +69,7 @@ object NetworkModule {
     fun provideGson(): Gson {
         return GsonBuilder()
             .setLenient()
+            .setDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'")
             .create()
     }
 

@@ -17,8 +17,11 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.media3.common.Player
+import androidx.media3.common.MediaItem
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
+import androidx.media3.exoplayer.SeekParameters
+import androidx.media3.exoplayer.DefaultLoadControl
 import com.example.clipcraft.models.VideoSegment
 import com.example.clipcraft.utils.VideoPlayerPool
 import kotlinx.coroutines.delay
@@ -44,18 +47,80 @@ fun OptimizedCompositeVideoPlayer(
     
     var currentSegmentIndex by remember { mutableStateOf(0) }
     var isPlayerReady by remember { mutableStateOf(false) }
-    var lastLoadedUri by remember { mutableStateOf<Uri?>(null) }
     
     // Calculate total duration
     val totalDuration = remember(segments) {
         segments.sumOf { it.duration.toDouble() }.toFloat()
     }
     
-    // Use a single player from the pool
+    // Use a single player from the pool (already has optimized load control)
     val player = remember {
         VideoPlayerPool.getPlayer(context, Uri.EMPTY, "composite_player").apply {
             playWhenReady = false
             repeatMode = Player.REPEAT_MODE_OFF
+            // Важно для плавного перехода между сегментами
+            (this as? ExoPlayer)?.apply {
+                setSeekParameters(SeekParameters.EXACT)
+                // Оптимизация для плавного воспроизведения
+                setHandleAudioBecomingNoisy(true)
+                setPauseAtEndOfMediaItems(false)
+            }
+        }
+    }
+    
+    
+    // Helper functions
+    fun findSegmentByPosition(position: Float): Int {
+        var accumulatedTime = 0f
+        for ((index, segment) in segments.withIndex()) {
+            if (position >= accumulatedTime && position < accumulatedTime + segment.duration) {
+                return index
+            }
+            accumulatedTime += segment.duration
+        }
+        return segments.size - 1
+    }
+    
+    fun calculateCurrentTimelinePosition(player: ExoPlayer, segmentList: List<VideoSegment>): Float {
+        if (segmentList.isEmpty() || player.mediaItemCount == 0) return 0f
+        
+        val currentIndex = player.currentMediaItemIndex
+        val currentPosMs = player.currentPosition
+        
+        var timelinePos = 0f
+        
+        // Add durations of previous segments
+        for (i in 0 until currentIndex.coerceIn(0, segmentList.size - 1)) {
+            timelinePos += segmentList[i].duration
+        }
+        
+        // Add current position
+        if (currentIndex < segmentList.size) {
+            timelinePos += (currentPosMs / 1000f).coerceIn(0f, segmentList[currentIndex].duration)
+        }
+        
+        return timelinePos
+    }
+    
+    fun seekToPosition(timelinePosition: Float) {
+        if (player.mediaItemCount == 0 || segments.isEmpty()) return
+        
+        val targetSegmentIndex = findSegmentByPosition(timelinePosition)
+        
+        if (targetSegmentIndex in 0 until minOf(segments.size, player.mediaItemCount)) {
+            // Рассчитываем накопленное время до целевого сегмента
+            var accumulatedTime = 0f
+            for (i in 0 until targetSegmentIndex) {
+                accumulatedTime += segments[i].duration
+            }
+            
+            // Позиция внутри целевого сегмента
+            val positionInSegment = (timelinePosition - accumulatedTime).coerceIn(0f, segments[targetSegmentIndex].duration)
+            val seekPosMs = (positionInSegment * 1000).toLong()
+            
+            // Переходим к нужному элементу и позиции
+            player.seekTo(targetSegmentIndex, seekPosMs)
+            Log.d("OptimizedCompositePlayer", "Seeking to segment $targetSegmentIndex at ${positionInSegment}s")
         }
     }
     
@@ -65,6 +130,11 @@ fun OptimizedCompositeVideoPlayer(
             when (event) {
                 Lifecycle.Event.ON_PAUSE -> {
                     player.pause()
+                }
+                Lifecycle.Event.ON_STOP -> {
+                    // Stop the player when activity is stopped to prevent DeadObjectException
+                    player.stop()
+                    player.clearMediaItems()
                 }
                 Lifecycle.Event.ON_DESTROY -> {
                     player.pause()
@@ -78,92 +148,159 @@ fun OptimizedCompositeVideoPlayer(
         
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
-            player.pause()
-            player.clearMediaItems()
+            // Properly stop and clear the player to avoid DeadObjectException
+            try {
+                player.stop()
+                player.clearMediaItems()
+                // Remove the player from the pool to ensure it's released
+                VideoPlayerPool.releasePlayer("composite_player")
+            } catch (e: Exception) {
+                Log.e("OptimizedCompositePlayer", "Error disposing player", e)
+            }
         }
     }
     
-    // Find current segment by position
     LaunchedEffect(currentPosition, segments) {
         if (segments.isEmpty()) return@LaunchedEffect
         
-        var accumulatedTime = 0f
-        for ((index, segment) in segments.withIndex()) {
-            if (currentPosition >= accumulatedTime && currentPosition < accumulatedTime + segment.duration) {
-                if (index != currentSegmentIndex) {
-                    currentSegmentIndex = index
-                    Log.d("OptimizedCompositePlayer", "Switching to segment $index at position $currentPosition")
-                }
-                break
-            }
-            accumulatedTime += segment.duration
+        val newSegmentIndex = findSegmentByPosition(currentPosition)
+        if (newSegmentIndex != currentSegmentIndex) {
+            currentSegmentIndex = newSegmentIndex
+            Log.d("OptimizedCompositePlayer", "Position changed to segment $currentSegmentIndex")
         }
     }
     
-    // Load media for current segment
-    LaunchedEffect(currentSegmentIndex, segments) {
+    // Preload all media items
+    LaunchedEffect(segments) {
         if (segments.isEmpty()) return@LaunchedEffect
         
-        val segment = segments.getOrNull(currentSegmentIndex) ?: return@LaunchedEffect
+        Log.d("OptimizedCompositePlayer", "Loading ${segments.size} media items")
+        player.stop()
+        player.clearMediaItems()
+        currentSegmentIndex = 0
         
-        // Only reload if URI changed
-        if (segment.sourceVideoUri != lastLoadedUri) {
-            Log.d("OptimizedCompositePlayer", "Loading new media: ${segment.sourceVideoUri}")
-            lastLoadedUri = segment.sourceVideoUri
-            isPlayerReady = false
+        // Create media items with clipping configuration and unique IDs
+        val mediaItems = segments.mapIndexed { index, segment ->
+            MediaItem.Builder()
+                .setUri(segment.sourceVideoUri)
+                .setMediaId("segment_$index")
+                .setClippingConfiguration(
+                    MediaItem.ClippingConfiguration.Builder()
+                        .setStartPositionMs((segment.inPoint * 1000).toLong())
+                        .setEndPositionMs((segment.outPoint * 1000).toLong())
+                        .build()
+                )
+                .setTag(index) // Для отслеживания позиции
+                .build()
+        }
+        
+        // Set media items directly - ExoPlayer will handle concatenation
+        player.setMediaItems(mediaItems, false) // false = don't reset position
+        player.prepare()
+        
+        Log.d("OptimizedCompositePlayer", "Prepared player with ${mediaItems.size} media items")
+        
+        // Seek to initial position after prepare
+        player.addListener(object : Player.Listener {
+            override fun onPlaybackStateChanged(state: Int) {
+                if (state == Player.STATE_READY && !isPlayerReady) {
+                    isPlayerReady = true
+                    seekToPosition(currentPosition)
+                    player.removeListener(this)
+                }
+            }
+        })
+    }
+    
+    // Handle position changes from external sources (user dragging slider)
+    LaunchedEffect(currentPosition) {
+        if (segments.isEmpty() || !isPlayerReady) return@LaunchedEffect
+        
+        // Only seek if not playing or if position changed significantly
+        if (!player.isPlaying) {
+            val currentTimelinePos = calculateCurrentTimelinePosition(player, segments)
             
-            player.stop()
-            player.clearMediaItems()
-            player.setMediaItem(androidx.media3.common.MediaItem.fromUri(segment.sourceVideoUri))
-            player.prepare()
+            if (kotlin.math.abs(currentTimelinePos - currentPosition) > 0.1f) {
+                seekToPosition(currentPosition)
+            }
         }
-        
-        // Calculate position in source video
-        var segmentStartInTimeline = 0f
-        for (i in 0 until currentSegmentIndex) {
-            segmentStartInTimeline += segments[i].duration
-        }
-        
-        val positionInSegment = (currentPosition - segmentStartInTimeline).coerceIn(0f, segment.duration)
-        val positionInSource = segment.inPoint + positionInSegment
-        
-        // Seek to position
-        player.seekTo((positionInSource * 1000).toLong())
-        
-        Log.d("OptimizedCompositePlayer", "Segment $currentSegmentIndex: seekTo ${positionInSource}s")
     }
     
     // Control playback
     LaunchedEffect(isPlaying) {
+        if (segments.isEmpty()) return@LaunchedEffect
+        
+        Log.d("OptimizedCompositePlayer", "Setting playWhenReady=$isPlaying, currentState=${player.playbackState}")
         player.playWhenReady = isPlaying
     }
     
     // Monitor player state
     DisposableEffect(player) {
         val listener = object : Player.Listener {
-            override fun onPlaybackStateChanged(playbackState: Int) {
-                when (playbackState) {
-                    Player.STATE_READY -> {
-                        isPlayerReady = true
-                        Log.d("OptimizedCompositePlayer", "Player ready")
-                    }
-                    Player.STATE_ENDED -> {
-                        // Move to next segment or stop
-                        coroutineScope.launch {
-                            if (currentSegmentIndex < segments.size - 1) {
-                                val nextPos = segments.take(currentSegmentIndex + 1)
-                                    .sumOf { it.duration.toDouble() }.toFloat()
-                                onPositionChange(nextPos)
-                            } else {
-                                onPlayingStateChanged(false)
+            // Используем onEvents для более эффективного обновления UI
+            override fun onEvents(player: Player, events: Player.Events) {
+                if (events.contains(Player.EVENT_PLAYBACK_STATE_CHANGED)) {
+                    when (player.playbackState) {
+                        Player.STATE_READY -> {
+                            if (!isPlayerReady) {
+                                isPlayerReady = true
+                                Log.d("OptimizedCompositePlayer", "Player ready, mediaItemCount=${player.mediaItemCount}")
                             }
+                        }
+                        Player.STATE_ENDED -> {
+                            Log.d("OptimizedCompositePlayer", "Player reached end of all segments")
+                            onPlayingStateChanged(false)
+                            onPositionChange(totalDuration)
+                        }
+                        Player.STATE_BUFFERING -> {
+                            Log.d("OptimizedCompositePlayer", "Player buffering")
+                        }
+                        Player.STATE_IDLE -> {
+                            Log.d("OptimizedCompositePlayer", "Player idle")
                         }
                     }
                 }
+                
+                if (events.contains(Player.EVENT_IS_PLAYING_CHANGED)) {
+                    onPlayingStateChanged(player.isPlaying)
+                }
+                
+                if (events.contains(Player.EVENT_MEDIA_ITEM_TRANSITION)) {
+                    currentSegmentIndex = player.currentMediaItemIndex
+                }
             }
             
-            override fun onIsPlayingChanged(playing: Boolean) {
-                onPlayingStateChanged(playing)
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                super.onMediaItemTransition(mediaItem, reason)
+                val reasonStr = when (reason) {
+                    Player.MEDIA_ITEM_TRANSITION_REASON_AUTO -> "AUTO"
+                    Player.MEDIA_ITEM_TRANSITION_REASON_SEEK -> "SEEK"
+                    Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED -> "PLAYLIST_CHANGED"
+                    Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT -> "REPEAT"
+                    else -> "UNKNOWN"
+                }
+                
+                val newIndex = player.currentMediaItemIndex
+                Log.d("OptimizedCompositePlayer", 
+                    "Media item transition: reason=$reasonStr, " +
+                    "newIndex=$newIndex, " +
+                    "mediaId=${mediaItem?.mediaId}, " +
+                    "position=${player.currentPosition}ms, " +
+                    "totalMediaItems=${player.mediaItemCount}")
+            }
+            
+            override fun onPositionDiscontinuity(
+                oldPosition: Player.PositionInfo,
+                newPosition: Player.PositionInfo,
+                reason: Int
+            ) {
+                super.onPositionDiscontinuity(oldPosition, newPosition, reason)
+                
+                if (reason == Player.DISCONTINUITY_REASON_AUTO_TRANSITION) {
+                    // Переход между сегментами
+                    Log.d("OptimizedCompositePlayer", 
+                        "Auto transition: ${oldPosition.mediaItemIndex} -> ${newPosition.mediaItemIndex}")
+                }
             }
         }
         
@@ -175,33 +312,37 @@ fun OptimizedCompositeVideoPlayer(
     }
     
     // Update position during playback
-    LaunchedEffect(player, segments, currentSegmentIndex) {
+    LaunchedEffect(player, segments) {
         if (segments.isEmpty()) return@LaunchedEffect
+        
+        var lastReportedPosition = -1f
         
         while (true) {
             delay(16) // ~60fps
             
-            if (player.isPlaying) {
-                val segment = segments.getOrNull(currentSegmentIndex) ?: continue
-                val currentPosInSource = player.currentPosition / 1000f
-                val positionInSegment = (currentPosInSource - segment.inPoint).coerceIn(0f, segment.duration)
+            if (isPlayerReady && player.mediaItemCount > 0) {
+                // Используем getCurrentMediaItemIndex и getCurrentPosition
+                val currentItemIndex = player.currentMediaItemIndex
+                val currentPositionMs = player.currentPosition
                 
-                // Calculate timeline position
-                var timelinePosition = positionInSegment
-                for (i in 0 until currentSegmentIndex) {
+                // Рассчитываем общую позицию в timeline
+                var timelinePosition = 0f
+                
+                // Добавляем длительность всех предыдущих сегментов
+                for (i in 0 until currentItemIndex.coerceIn(0, segments.size - 1)) {
                     timelinePosition += segments[i].duration
                 }
                 
-                // Check segment boundary
-                if (positionInSegment >= segment.duration - 0.05f) {
-                    if (currentSegmentIndex < segments.size - 1) {
-                        // Move to next segment
-                        val nextPos = segments.take(currentSegmentIndex + 1)
-                            .sumOf { it.duration.toDouble() }.toFloat()
-                        onPositionChange(nextPos)
-                    }
-                } else {
+                // Добавляем текущую позицию в сегменте
+                if (currentItemIndex < segments.size) {
+                    val positionInSegment = (currentPositionMs / 1000f).coerceIn(0f, segments[currentItemIndex].duration)
+                    timelinePosition += positionInSegment
+                }
+                
+                // Обновляем позицию только если она изменилась значительно
+                if (kotlin.math.abs(timelinePosition - lastReportedPosition) > 0.01f) {
                     onPositionChange(timelinePosition)
+                    lastReportedPosition = timelinePosition
                 }
             }
         }

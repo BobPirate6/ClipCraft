@@ -32,6 +32,13 @@ import java.io.File
 import java.util.UUID
 import javax.inject.Inject
 import android.app.Application
+import com.example.clipcraft.utils.VideoEditorStateManager
+import com.example.clipcraft.utils.TemporaryFileManager
+import com.example.clipcraft.utils.VideoEditorUpdateManager
+import com.example.clipcraft.domain.model.VideoEditorOrchestrator
+import com.example.clipcraft.domain.model.AIEditResult
+import com.example.clipcraft.domain.model.VideoStateManager
+import com.example.clipcraft.domain.model.VideoEditState
 
 @HiltViewModel
 class MainViewModel @Inject constructor(
@@ -41,7 +48,12 @@ class MainViewModel @Inject constructor(
     private val processingRepository: VideoProcessingRepository,
     private val gson: Gson,
     private val sharedPreferences: SharedPreferences,
-    private val application: Application
+    private val application: Application,
+    private val videoEditorStateManager: VideoEditorStateManager,
+    private val temporaryFileManager: TemporaryFileManager,
+    private val videoEditorUpdateManager: VideoEditorUpdateManager,
+    private val videoEditorOrchestrator: VideoEditorOrchestrator,
+    private val videoStateManager: VideoStateManager
 ) : ViewModel() {
 
     companion object {
@@ -53,7 +65,7 @@ class MainViewModel @Inject constructor(
         private const val PREF_FEEDBACK_SHOWN = "feedback_dialog_shown"
     }
 
-    enum class Screen { Intro, Main, Profile, VideoEditor }
+    enum class Screen { Intro, Main, Profile, VideoEditor, Subscription }
 
     private val _currentScreen = MutableStateFlow(Screen.Intro)
     val currentScreen: StateFlow<Screen> = _currentScreen.asStateFlow()
@@ -270,6 +282,9 @@ class MainViewModel @Inject constructor(
             return
         }
         
+        // Инициализируем новую сессию с выбранными видео
+        videoStateManager.startNewSession(_selectedVideos.value.map { it.uri })
+        
         val videoUris = _selectedVideos.value.map { it.uri.toString() }.toTypedArray()
         Log.d(TAG, "Starting work with ${videoUris.size} videos and command: ${_userCommand.value}")
         val workId = processingRepository.processNewVideo(videoUris, _userCommand.value)
@@ -283,6 +298,9 @@ class MainViewModel @Inject constructor(
             _processingState.value = ProcessingState.Error("Выберите видео для редактирования.")
             return
         }
+        
+        // Инициализируем новую сессию для ручного редактирования
+        videoStateManager.startNewSession(_selectedVideos.value.map { it.uri })
         
         // Создаем пустой план монтажа для ручного редактирования
         val emptyEditPlan = EditPlan(emptyList())
@@ -447,18 +465,65 @@ class MainViewModel @Inject constructor(
                     Log.d("videoeditorclipcraft", "Processing state set to Success with ${editPlan.finalEdit.size} segments")
                     Log.d("videoeditorclipcraft", "Current screen: ${_currentScreen.value}")
                     
+                    // Переходим в состояние Stage1A если это первое AI создание
+                    if (_editingState.value.mode == ProcessingMode.NEW) {
+                        videoStateManager.transitionToAICreated(
+                            videoPath = resultPath,
+                            editPlan = editPlan,
+                            sourceVideos = _selectedVideos.value.map { it.uri }
+                        )
+                    }
+                    
                     // Обновляем editingState с новым путем видео, если мы в режиме редактирования
                     if (_editingState.value.mode == ProcessingMode.EDIT) {
                         Log.d(TAG, "Updating editingState with new video path: $resultPath")
                         _editingState.value = _editingState.value.copy(
                             currentVideoPath = resultPath
                         )
+                        
+                        // Если это голосовое редактирование из редактора, сохраняем обновление для редактора
+                        if (_editingState.value.isVoiceEditingFromEditor) {
+                            Log.d(TAG, "Saving update for video editor")
+                            videoEditorUpdateManager.setPendingUpdate(
+                                VideoEditorUpdateManager.EditorUpdate(
+                                    editPlan = editPlan,
+                                    videoAnalyses = videoAnalysesMap,
+                                    selectedVideos = _selectedVideos.value,
+                                    resultPath = resultPath
+                                )
+                            )
+                        }
                     }
 
                     saveResultToHistory(successState)
                     
                     // Увеличиваем счетчик монтажей
                     incrementMontageCount()
+                    
+                    // Обновляем оркестратор с результатом AI
+                    if (_editingState.value.isVoiceEditingFromEditor) {
+                        viewModelScope.launch {
+                            val aiResult = AIEditResult(
+                                command = _editingState.value.editCommand,
+                                videoPath = resultPath,
+                                editPlan = editPlan,
+                                videoAnalyses = videoAnalysesMap
+                            )
+                            videoEditorOrchestrator.onAIEditComplete(aiResult)
+                        }
+                        
+                        // Переходим обратно в редактор после обработки
+                        // Но сначала дадим время обновиться состоянию
+                        viewModelScope.launch {
+                            delay(100) // Небольшая задержка для гарантии обновления состояния
+                            _currentScreen.value = Screen.VideoEditor
+                            Log.d(TAG, "Navigating back to VideoEditor after AI processing")
+                        }
+                    } else if (_editingState.value.mode == ProcessingMode.NEW) {
+                        // Для первого AI монтажа НЕ переходим в редактор автоматически
+                        // Остаемся на главном экране для отображения результата
+                        Log.d(TAG, "First AI processing completed, staying on Main screen")
+                    }
 
                     // Очищаем сообщения чата
                     _processingChatMessages.value = emptyList()
@@ -529,12 +594,18 @@ class MainViewModel @Inject constructor(
             0
         }
         
+        // Сохраняем оригинальные URI видео, а не временные пути
+        val originalVideoUris = _selectedVideos.value.map { selectedVideo ->
+            // Используем оригинальный URI из галереи
+            selectedVideo.uri.toString()
+        }
+        
         val historyEntry = EditHistory(
             id = UUID.randomUUID().toString(),
             command = _userCommand.value,
             plan = state.editPlan!!,
             resultPath = state.result,
-            videoUris = _selectedVideos.value.map { it.uri.toString() },
+            videoUris = originalVideoUris, // Используем оригинальные URI
             videoAnalyses = videoAnalyses,
             editCount = editCount,
             parentId = if (currentEditingState.mode == ProcessingMode.EDIT) parentId else null
@@ -628,6 +699,11 @@ class MainViewModel @Inject constructor(
     fun navigateTo(screen: Screen) {
         Log.d("videoeditorclipcraft", "navigateTo called: from ${_currentScreen.value} to $screen")
         _currentScreen.value = screen
+        
+        // Если возвращаемся из редактора на главный экран, сбрасываем режим редактирования
+        if (screen == Screen.Main) {
+            _editingState.update { it.copy(mode = ProcessingMode.NEW) }
+        }
     }
 
     fun updateCommand(command: String) {
@@ -650,46 +726,15 @@ class MainViewModel @Inject constructor(
         Log.d(TAG, "Creating new video")
         Log.d("videoeditorclipcraft", "createNewVideo called - resetting all states")
         
+        // Отмечаем, что состояние VideoEditorViewModel нужно очистить
+        videoEditorStateManager.markForClear()
+        
+        // Очищаем сессию в VideoStateManager
+        videoStateManager.clearSession()
+        
         // Очищаем все временные файлы
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                // Очищаем текущий путь видео из состояния редактирования
-                val currentPath = _editingState.value.currentVideoPath
-                if (currentPath != null && currentPath.startsWith("/")) {
-                    val file = File(currentPath)
-                    if (file.exists() && (file.path.contains("/cache/") || file.path.contains("/temp/") || file.path.contains("/output/"))) {
-                        file.delete()
-                        Log.d(TAG, "Deleted temporary video file: $currentPath")
-                    }
-                }
-                
-                // Очищаем результат обработки если это временный файл
-                val processingResult = when (val state = _processingState.value) {
-                    is ProcessingState.Success -> state.result
-                    else -> null
-                }
-                if (processingResult != null && processingResult.startsWith("/")) {
-                    val file = File(processingResult)
-                    if (file.exists() && (file.path.contains("/cache/") || file.path.contains("/temp/") || file.path.contains("/output/"))) {
-                        file.delete()
-                        Log.d(TAG, "Deleted processing result file: $processingResult")
-                    }
-                }
-                
-                // Очищаем папку с временными файлами приложения
-                val cacheDir = application.cacheDir
-                val tempDir = File(cacheDir, "temp_videos")
-                if (tempDir.exists() && tempDir.isDirectory) {
-                    tempDir.listFiles()?.forEach { file ->
-                        if (file.name.startsWith("temp_") || file.name.startsWith("edited_") || file.name.startsWith("output_")) {
-                            file.delete()
-                            Log.d(TAG, "Deleted temp file: ${file.name}")
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error cleaning up temporary files", e)
-            }
+        viewModelScope.launch {
+            temporaryFileManager.cleanupAllTemporaryFiles()
         }
         
         // Полный сброс всех состояний
@@ -914,9 +959,10 @@ class MainViewModel @Inject constructor(
     fun startTutorial() {
         if (!_tutorialState.value.isEnabled) return
         
-        // Сбрасываем также туториал редактора при запуске общего туториала
+        // Сбрасываем все туториалы при запуске общего туториала
         sharedPreferences.edit()
             .remove("video_editor_tutorial_shown")
+            .remove("voice_edit_tutorial_shown")
             .apply()
         
         _tutorialState.value = _tutorialState.value.copy(
@@ -978,7 +1024,8 @@ class MainViewModel @Inject constructor(
             // Сбрасываем прогресс туториала при включении
             sharedPreferences.edit()
                 .remove("tutorial_completed_steps")
-                .remove("video_editor_tutorial_shown") // Сбрасываем также туториал редактора
+                .remove("video_editor_tutorial_shown") // Сбрасываем туториал редактора
+                .remove("voice_edit_tutorial_shown") // Сбрасываем туториал голосового редактирования
                 .apply()
             
             _tutorialState.value = _tutorialState.value.copy(

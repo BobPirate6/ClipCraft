@@ -44,6 +44,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.res.stringResource
+import com.example.clipcraft.R
 
 @OptIn(ExperimentalPermissionsApi::class)
 @Composable
@@ -129,6 +131,13 @@ fun NewMainScreen(
 
     // Время последнего показанного сообщения
     var lastMessageTime by remember { mutableStateOf(0L) }
+    var allVideosProcessed by remember { mutableStateOf(false) }
+    var currentVideoProgress by remember { mutableStateOf(0) }
+    var totalVideosCount by remember { mutableStateOf(0) }
+    
+    // Получаем строки заранее для использования в LaunchedEffect
+    val videoReadyText = stringResource(R.string.speech_bubble_video_ready)
+    val feedbackText = stringResource(R.string.speech_bubble_feedback)
     
     // Convert processing messages to speech bubbles
     LaunchedEffect(processingMessages) {
@@ -137,15 +146,50 @@ fun NewMainScreen(
         processingMessages.forEach { message ->
             val existingIds = speechBubbleMessages.map { it.text }
             if (!existingIds.contains(message)) {
-                // Пропускаем транскрибированную речь
-                if (message.contains("Транскрибированная речь:", ignoreCase = true) || 
-                    message.contains("найдена речь:", ignoreCase = true)) {
+                
+                // Обработка прогресса видео (показываем ВСЕГДА)
+                if (message.contains("🎬") && (message.contains(" of ") || message.contains(" из "))) {
+                    val regex = """(\d+)\s*(?:of|из)\s*(\d+)""".toRegex()
+                    val match = regex.find(message)
+                    if (match != null) {
+                        currentVideoProgress = match.groupValues[1].toIntOrNull() ?: 0
+                        totalVideosCount = match.groupValues[2].toIntOrNull() ?: 0
+                        
+                        speechBubbleMessages = speechBubbleMessages + SpeechBubbleMessage(
+                            text = message,
+                            type = MessageType.VIDEO_PROGRESS,
+                            progress = if (totalVideosCount > 0) currentVideoProgress.toFloat() / totalVideosCount else 0f,
+                            currentVideo = currentVideoProgress,
+                            totalVideos = totalVideosCount
+                        )
+                    }
+                    lastMessageTime = currentTime
                     return@forEach
                 }
                 
-                // Всегда показываем план монтажа
-                if (message.contains("План монтажа готов", ignoreCase = true) || 
-                    message.contains("💭 План монтажа:", ignoreCase = false)) {
+                // Транскрипция (показываем ВСЕГДА)
+                if (message.contains("💬") && (message.contains("найдена речь") || message.contains("Speech found"))) {
+                    speechBubbleMessages = speechBubbleMessages + SpeechBubbleMessage(
+                        text = message,
+                        type = MessageType.TRANSCRIPTION
+                    )
+                    lastMessageTime = currentTime
+                    return@forEach
+                }
+                
+                // Все видео готовы
+                if (message.contains("📊") && (message.contains("готовы") || message.contains("ready"))) {
+                    allVideosProcessed = true
+                    speechBubbleMessages = speechBubbleMessages + SpeechBubbleMessage(
+                        text = message,
+                        type = MessageType.SYSTEM
+                    )
+                    lastMessageTime = currentTime
+                    return@forEach
+                }
+                
+                // План монтажа (показываем ВСЕГДА)
+                if (message.contains("📋") || message.contains("План монтажа готов") || message.contains("plan ready")) {
                     speechBubbleMessages = speechBubbleMessages + SpeechBubbleMessage(
                         text = message,
                         type = MessageType.PLAN
@@ -154,33 +198,24 @@ fun NewMainScreen(
                     return@forEach
                 }
                 
-                // Показываем сообщение о готовности видео
-                if (message.contains("готово", ignoreCase = true) || 
-                    message.contains("завершено", ignoreCase = true)) {
+                // Видео готово
+                if (message.contains("🎉") && (message.contains("готово") || message.contains("ready"))) {
                     speechBubbleMessages = speechBubbleMessages + SpeechBubbleMessage(
-                        text = "🎉 Видео готово!",
+                        text = videoReadyText,
                         type = MessageType.SUCCESS
                     )
                     lastMessageTime = currentTime
                     return@forEach
                 }
                 
-                // Ограничиваем частоту показа других сообщений (раз в 10 секунд)
-                if (currentTime - lastMessageTime < 10000 && !message.contains("план", ignoreCase = true)) {
+                // Системные сообщения (показываем с ограничением по времени)
+                if (currentTime - lastMessageTime < 5000) {
                     return@forEach
-                }
-                
-                val type = when {
-                    message.contains("монтаж", ignoreCase = true) -> MessageType.SYSTEM
-                    message.contains("Прогресс", ignoreCase = true) -> MessageType.PROGRESS
-                    message.contains("✨", ignoreCase = false) -> MessageType.PROGRESS
-                    message.contains("🎬", ignoreCase = false) -> MessageType.PROGRESS
-                    else -> MessageType.SYSTEM
                 }
                 
                 speechBubbleMessages = speechBubbleMessages + SpeechBubbleMessage(
                     text = message,
-                    type = type
+                    type = MessageType.SYSTEM
                 )
                 lastMessageTime = currentTime
             }
@@ -194,7 +229,7 @@ fun NewMainScreen(
                 // Показываем сообщение о готовности
                 if (!speechBubbleMessages.any { it.text.contains("готово", ignoreCase = true) }) {
                     speechBubbleMessages = speechBubbleMessages + SpeechBubbleMessage(
-                        text = "🎉 Видео готово!",
+                        text = videoReadyText,
                         type = MessageType.SUCCESS
                     )
                 }
@@ -216,20 +251,20 @@ fun NewMainScreen(
         if (processingState is ProcessingState.Processing && speechBubbleMessages.isEmpty()) {
             delay(2000)
             speechBubbleMessages = speechBubbleMessages + SpeechBubbleMessage(
-                text = getRandomTip(),
+                text = getRandomTip(context),
                 type = MessageType.TIP
             )
         }
     }
 
-    // Добавляем сообщения прогресса при длительных паузах (не чаще раза в 10 секунд)
-    LaunchedEffect(processingState, speechBubbleMessages) {
-        if (processingState is ProcessingState.Processing && speechBubbleMessages.isNotEmpty()) {
+    // Добавляем сообщения прогресса при длительных паузах (только после обработки всех видео)
+    LaunchedEffect(processingState, speechBubbleMessages, allVideosProcessed) {
+        if (processingState is ProcessingState.Processing && speechBubbleMessages.isNotEmpty() && allVideosProcessed) {
             delay(10000) // Ждем 10 секунд
             val lastMessageTimeFromBubbles = speechBubbleMessages.lastOrNull()?.timestamp ?: 0
             val currentTime = System.currentTimeMillis()
 
-            // Если прошло больше 10 секунд с последнего сообщения
+            // Если прошло больше 10 секунд с последнего сообщения и все видео обработаны
             if (currentTime - lastMessageTimeFromBubbles > 10000) {
                 // Подсчитываем количество сообщений прогресса
                 val progressMessageCount = speechBubbleMessages.count { it.type == MessageType.PROGRESS }
@@ -237,7 +272,7 @@ fun NewMainScreen(
                 // Показываем предложение обратной связи после 3-го сообщения прогресса
                 if (progressMessageCount == 3 && !speechBubbleMessages.any { it.type == MessageType.FEEDBACK }) {
                     speechBubbleMessages = speechBubbleMessages + SpeechBubbleMessage(
-                        text = "📝 Пока ваше видео обрабатывается, вы можете поделиться своими впечатлениями о ClipCraft!",
+                        text = feedbackText,
                         type = MessageType.FEEDBACK,
                         action = {
                             // Открываем форму обратной связи
@@ -250,7 +285,7 @@ fun NewMainScreen(
                     )
                 } else {
                     speechBubbleMessages = speechBubbleMessages + SpeechBubbleMessage(
-                        text = getRandomProgressMessage(),
+                        text = getRandomProgressMessage(context),
                         type = MessageType.PROGRESS
                     )
                 }
@@ -483,7 +518,7 @@ fun NewMainScreen(
                     if (selectedVideos.isEmpty()) {
                         Log.e("NewMainScreen", "Cannot edit: no videos selected")
                         // Можно показать Toast или Snackbar
-                        Toast.makeText(context, "Ошибка: исходные видео не найдены", Toast.LENGTH_LONG).show()
+                        Toast.makeText(context, "Videos not found. Please select videos to edit.", Toast.LENGTH_LONG).show()
                     } else {
                         // Переходим в режим редактирования
                         speechBubbleMessages = emptyList()
@@ -577,7 +612,7 @@ private fun TopBar(
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        text = "Кредиты: ${user.creditsRemaining}",
+                        text = stringResource(R.string.main_credits_format, user.creditsRemaining),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -599,7 +634,7 @@ private fun TopBar(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Person,
-                            contentDescription = "Профиль",
+                            contentDescription = stringResource(R.string.nav_profile),
                             tint = MaterialTheme.colorScheme.onPrimary
                         )
                     }
@@ -698,12 +733,12 @@ private fun BottomCommandPanel(
                                 ) {
                                     Icon(
                                         Icons.Default.Movie,
-                                        contentDescription = "Видеоредактор",
+                                        contentDescription = stringResource(R.string.nav_video_editor),
                                         tint = MaterialTheme.colorScheme.onPrimaryContainer
                                     )
                                 }
                                 Text(
-                                    "Редактор",
+                                    stringResource(R.string.main_editor_label),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -717,10 +752,10 @@ private fun BottomCommandPanel(
                                     onClick = onSaveClick,
                                     modifier = Modifier.size(48.dp)
                                 ) {
-                                    Icon(Icons.Default.Download, contentDescription = "Сохранить")
+                                    Icon(Icons.Default.Download, contentDescription = stringResource(R.string.action_save))
                                 }
                                 Text(
-                                    "Сохранить",
+                                    stringResource(R.string.action_save),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -739,7 +774,7 @@ private fun BottomCommandPanel(
                                             onClick = onShareClick,
                                             modifier = Modifier.size(48.dp)
                                         ) {
-                                            Icon(Icons.Default.Share, contentDescription = "Поделиться")
+                                            Icon(Icons.Default.Share, contentDescription = stringResource(R.string.action_share))
                                         }
                                     }
                                 } else {
@@ -751,7 +786,7 @@ private fun BottomCommandPanel(
                                     }
                                 }
                                 Text(
-                                    "Поделиться",
+                                    stringResource(R.string.action_share),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -779,7 +814,7 @@ private fun BottomCommandPanel(
                                             modifier = Modifier.size(16.dp)
                                         )
                                         Spacer(modifier = Modifier.width(4.dp))
-                                        Text("Новое", fontSize = 14.sp)
+                                        Text(stringResource(R.string.action_new), fontSize = 14.sp)
                                     }
                                 }
                             } else {
@@ -793,7 +828,7 @@ private fun BottomCommandPanel(
                                         modifier = Modifier.size(16.dp)
                                     )
                                     Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Новое", fontSize = 14.sp)
+                                    Text(stringResource(R.string.action_new), fontSize = 14.sp)
                                 }
                             }
                         }
@@ -834,7 +869,7 @@ private fun BottomCommandPanel(
                             ) {
                                 Icon(
                                     Icons.Default.Close,
-                                    contentDescription = "Отмена редактирования",
+                                    contentDescription = stringResource(R.string.main_cancel_editing),
                                     tint = MaterialTheme.colorScheme.error
                                 )
                             }
@@ -861,7 +896,7 @@ private fun BottomCommandPanel(
                                                 if (isEditMode)
                                                     "расскажи текстом или голосом что нужно изменить"
                                                 else
-                                                    "Например: динамичный клип с мотоциклом",
+                                                    stringResource(R.string.main_command_placeholder),
                                                 modifier = Modifier.fillMaxWidth()
                                             )
                                         },
@@ -883,7 +918,7 @@ private fun BottomCommandPanel(
                                             ) {
                                                 Icon(
                                                     Icons.Default.Mic,
-                                                    contentDescription = "Голосовой ввод",
+                                                    contentDescription = stringResource(R.string.main_voice_input),
                                                     modifier = Modifier.size(24.dp)
                                                 )
                                             }
@@ -918,7 +953,7 @@ private fun BottomCommandPanel(
                                     ) {
                                         Icon(
                                             Icons.Default.Mic,
-                                            contentDescription = "Голосовой ввод",
+                                            contentDescription = stringResource(R.string.main_voice_input),
                                             modifier = Modifier.size(24.dp)
                                         )
                                     }
@@ -950,7 +985,7 @@ private fun BottomCommandPanel(
                                     ) {
                                         Icon(
                                             Icons.Default.ArrowForward,
-                                            contentDescription = "Начать обработку",
+                                            contentDescription = stringResource(R.string.main_start_processing),
                                             tint = if (isButtonEnabled) 
                                                 MaterialTheme.colorScheme.onPrimary 
                                             else 
@@ -1032,7 +1067,7 @@ private fun PermissionRequestScreen(
         )
         Spacer(modifier = Modifier.height(24.dp))
         Button(onClick = onRequestPermission) {
-            Text("Предоставить доступ")
+            Text(stringResource(R.string.action_grant_access))
         }
     }
 }
@@ -1044,7 +1079,7 @@ private fun ShareOptionsDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Поделиться") },
+        title = { Text(stringResource(R.string.action_share)) },
         text = {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -1058,7 +1093,7 @@ private fun ShareOptionsDialog(
         confirmButton = {},
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Отмена")
+                Text(stringResource(R.string.action_cancel))
             }
         }
     )
